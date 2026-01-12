@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getWeeks, removeVideoFromDay } from '../dataService';
+import { getWeeks, removeVideoFromDay, createWeek } from '../dataService';
 import { Week } from '../types';
 import Sidebar from '../components/Sidebar';
 import AdminEdit from '../components/AdminEdit';
 import WeekDetail from '../components/WeekDetail';
-import { Lock, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Lock, Eye, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 
 export default function AdminMode() {
   const [weeks, setWeeks] = useState<Week[]>([]);
   const [selectedWeekId, setSelectedWeekId] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [notification, setNotification] = useState<{ message: string; type: 'info' | 'success' } | null>(null);
   const navigate = useNavigate();
 
   const loadWeeks = () => {
@@ -53,6 +54,94 @@ export default function AdminMode() {
     }
   };
 
+  const handleCreateWeek = () => {
+    try {
+      // Önce yeni haftanın tarih aralığını hesapla (oluşturmadan önce)
+      const lastWeek = weeks.length > 0 
+        ? weeks.reduce((latest, week) => {
+            const latestDate = new Date(latest.endDate + 'T00:00:00Z');
+            const weekDate = new Date(week.endDate + 'T00:00:00Z');
+            return weekDate > latestDate ? week : latest;
+          })
+        : null;
+
+      let nextWeekStart: Date;
+      let nextWeekEnd: Date;
+      let weekNumber: number;
+
+      if (lastWeek) {
+        const lastEndDate = new Date(lastWeek.endDate + 'T00:00:00Z');
+        nextWeekStart = new Date(lastEndDate);
+        nextWeekStart.setUTCDate(nextWeekStart.getUTCDate() + 1);
+        
+        // Pazartesi gününü bul
+        const dayOfWeek = nextWeekStart.getUTCDay();
+        const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        nextWeekStart.setUTCDate(nextWeekStart.getUTCDate() - daysToSubtract);
+        nextWeekStart.setUTCHours(0, 0, 0, 0);
+        
+        nextWeekEnd = new Date(nextWeekStart);
+        nextWeekEnd.setUTCDate(nextWeekEnd.getUTCDate() + 6);
+        
+        // Hafta numarasını hesapla
+        const weekNumbers = weeks.map(w => {
+          const match = w.title.match(/^(\d+)\./);
+          return match ? parseInt(match[1], 10) : 0;
+        });
+        weekNumber = Math.max(...weekNumbers, 0) + 1;
+      } else {
+        const today = new Date();
+        const dayOfWeek = today.getUTCDay();
+        const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+        nextWeekStart = new Date(today);
+        nextWeekStart.setUTCDate(nextWeekStart.getUTCDate() - daysToSubtract);
+        nextWeekStart.setUTCHours(0, 0, 0, 0);
+        
+        nextWeekEnd = new Date(nextWeekStart);
+        nextWeekEnd.setUTCDate(nextWeekEnd.getUTCDate() + 6);
+        weekNumber = 1;
+      }
+
+      // Tarih formatını hazırla
+      const startDateStr = nextWeekStart.toLocaleDateString('tr-TR', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      });
+      const endDateStr = nextWeekEnd.toLocaleDateString('tr-TR', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      });
+
+      // Haftayı direkt oluştur
+      const newWeek = createWeek();
+      
+      // State'i güncelle - önce haftaları yeniden yükle
+      const updatedWeeks = getWeeks();
+      setWeeks(updatedWeeks);
+      
+      // Yeni haftayı seç
+      setSelectedWeekId(newWeek.id);
+      setIsEditMode(false);
+      
+      // Bilgi mesajı göster - createWeek içinde hesaplanan hafta numarasını kullan
+      const createdWeekNumber = newWeek.title.match(/^(\d+)\./)?.[1] || weekNumber.toString();
+      setNotification({
+        message: `${createdWeekNumber}. Hafta oluşturuldu: ${startDateStr} - ${endDateStr}`,
+        type: 'success'
+      });
+      
+      // 3 saniye sonra mesajı kaldır
+      setTimeout(() => {
+        setNotification(null);
+      }, 3000);
+    } catch (error) {
+      console.error('Hafta oluşturma hatası:', error);
+      alert('Hafta oluşturulurken bir hata oluştu.');
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-50">
       <Sidebar
@@ -65,6 +154,23 @@ export default function AdminMode() {
       />
 
       <div className="flex-1 flex flex-col">
+        {notification && (
+          <div className={`mx-4 mt-4 px-4 py-3 rounded-lg shadow-md ${
+            notification.type === 'success' 
+              ? 'bg-green-50 border border-green-200 text-green-800' 
+              : 'bg-blue-50 border border-blue-200 text-blue-800'
+          }`}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">{notification.message}</p>
+              <button
+                onClick={() => setNotification(null)}
+                className="text-gray-400 hover:text-gray-600 ml-4"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
         <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div className="flex items-center gap-2">
             <Lock className="w-5 h-5 text-[#0078d4]" />
@@ -91,6 +197,13 @@ export default function AdminMode() {
           )}
 
           <div className="flex gap-2 w-full sm:w-auto">
+            <button
+              onClick={handleCreateWeek}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" />
+              Yeni Hafta
+            </button>
             {selectedWeek && (
               <button
                 onClick={() => setIsEditMode(!isEditMode)}
@@ -124,7 +237,15 @@ export default function AdminMode() {
 
         {selectedWeek ? (
           isEditMode ? (
-            <AdminEdit week={selectedWeek} onSave={handleSave} />
+            <AdminEdit 
+              week={selectedWeek} 
+              onSave={handleSave}
+              onWeekDeleted={() => {
+                setSelectedWeekId(null);
+                setIsEditMode(false);
+                loadWeeks();
+              }}
+            />
           ) : (
             <WeekDetail
               week={selectedWeek}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getWeeks } from '../dataService';
+import { getWeeks, ensureNextWeekExists } from '../dataService';
 import { Week } from '../types';
 import Sidebar from '../components/Sidebar';
 import WeekDetail from '../components/WeekDetail';
@@ -12,6 +12,8 @@ export default function ViewMode() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // ViewMode'da otomatik hafta oluşturmayı tetikle
+    ensureNextWeekExists();
     const loadedWeeks = getWeeks().filter(w => w.status === 'published');
     setWeeks(loadedWeeks);
     if (loadedWeeks.length > 0) {

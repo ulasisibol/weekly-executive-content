@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Week, Day } from '../types';
-import { Save, Plus, Video, Trash2, ChevronDown } from 'lucide-react';
+import { Week } from '../types';
+import { Plus, Trash2, ChevronDown } from 'lucide-react';
 import {
   saveWeek,
   addDayToWeek,
@@ -8,21 +8,29 @@ import {
   updateDayDate,
   addVideoToDay,
   removeVideoFromDay,
-  updateVideoUrl
+  updateVideoUrl,
+  updateVideoDescription,
+  removeWeek
 } from '../dataService';
-import DayContent from './DayContent';
+import VideoDropzone from './VideoDropzone';
 
 interface AdminEditProps {
   week: Week;
   onSave: () => void;
+  onWeekDeleted?: () => void;
 }
 
-export default function AdminEdit({ week, onSave }: AdminEditProps) {
+export default function AdminEdit({ week, onSave, onWeekDeleted }: AdminEditProps) {
   const [currentWeek, setCurrentWeek] = useState<Week>(week);
   const [expandedDayId, setExpandedDayId] = useState<string | null>(null);
+  const [activeDropzone, setActiveDropzone] = useState<{ dayId: string; type: 'story' | 'post' } | null>(null);
+  const [editingDescription, setEditingDescription] = useState<{ dayId: string; videoId: string } | null>(null);
+  const [descriptionValue, setDescriptionValue] = useState('');
 
-  const handleAddDay = (afterDateString: string) => {
-    const newDay = addDayToWeek(currentWeek.id, afterDateString);
+  const handleAddDay = (afterDateString?: string) => {
+    // Eğer afterDateString verilmemişse, haftanın başlangıç tarihini kullan
+    const dateToUse = afterDateString || currentWeek.startDate;
+    const newDay = addDayToWeek(currentWeek.id, dateToUse);
     if (newDay) {
       setCurrentWeek({ ...currentWeek, days: currentWeek.days });
       onSave();
@@ -49,14 +57,20 @@ export default function AdminEdit({ week, onSave }: AdminEditProps) {
   };
 
   const handleAddVideo = (dayId: string, type: 'story' | 'post') => {
-    const url = prompt(`${type === 'story' ? 'Hikaye' : 'Post'} video URL'sini girin:`);
-    if (url) {
-      const video = addVideoToDay(currentWeek.id, dayId, { url, type });
-      if (video) {
-        setCurrentWeek({ ...currentWeek });
-        onSave();
-      }
+    setActiveDropzone({ dayId, type });
+  };
+
+  const handleVideoUploaded = (dayId: string, type: 'story' | 'post') => (url: string, description?: string) => {
+    const video = addVideoToDay(currentWeek.id, dayId, { url, type, description });
+    if (video) {
+      setCurrentWeek({ ...currentWeek });
+      onSave();
+      setActiveDropzone(null);
     }
+  };
+
+  const handleCancelDropzone = () => {
+    setActiveDropzone(null);
   };
 
   const handleRemoveVideo = (dayId: string, videoId: string) => {
@@ -74,11 +88,52 @@ export default function AdminEdit({ week, onSave }: AdminEditProps) {
     }
   };
 
+  const handleStartEditDescription = (dayId: string, videoId: string) => {
+    const video = currentWeek.days
+      .find(d => d.id === dayId)
+      ?.videos.find(v => v.id === videoId);
+    
+    if (!video) return;
+    
+    setEditingDescription({ dayId, videoId });
+    setDescriptionValue(video.description || '');
+  };
+
+  const handleSaveDescription = (dayId: string, videoId: string) => {
+    if (updateVideoDescription(currentWeek.id, dayId, videoId, descriptionValue)) {
+      setCurrentWeek({ ...currentWeek });
+      onSave();
+      setEditingDescription(null);
+      setDescriptionValue('');
+    }
+  };
+
+  const handleCancelEditDescription = () => {
+    setEditingDescription(null);
+    setDescriptionValue('');
+  };
+
   const handleWeekStatusChange = (status: 'published' | 'draft') => {
     const updated = { ...currentWeek, status };
     saveWeek(updated);
     setCurrentWeek(updated);
     onSave();
+  };
+
+  const handleDeleteWeek = () => {
+    // Sadece boş haftalar silinebilir
+    if (currentWeek.days.length > 0) {
+      alert('Bu hafta silinemez çünkü içinde günler var. Önce tüm günleri silin.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `"${currentWeek.title}" haftasını silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz.`
+    );
+
+    if (confirmed && removeWeek(currentWeek.id)) {
+      onWeekDeleted?.();
+    }
   };
 
   const dayNumbers: { [key: string]: number } = {};
@@ -139,42 +194,54 @@ export default function AdminEdit({ week, onSave }: AdminEditProps) {
                 <option value="published">Yayında</option>
               </select>
             </div>
+            {currentWeek.days.length === 0 && (
+              <div className="flex items-end">
+                <button
+                  onClick={handleDeleteWeek}
+                  className="w-full sm:w-auto px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium border border-red-200"
+                >
+                  <Trash2 className="w-4 h-4 inline mr-1" />
+                  Boş Haftayı Sil
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="space-y-4">
           {currentWeek.days.map((day, index) => (
-            <div key={day.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <button
-                onClick={() => setExpandedDayId(expandedDayId === day.id ? null : day.id)}
-                className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-              >
-                <div className="text-left">
-                  <h3 className="font-semibold text-gray-900">
-                    {index + 1}. Gün - {day.dayOfWeek}
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    {new Date(day.date + 'T00:00:00Z').toLocaleDateString('tr-TR', {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric'
-                    })}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
-                    {day.videos.length} video
-                  </span>
-                  <ChevronDown
-                    className={`w-5 h-5 text-gray-400 transition-transform ${
-                      expandedDayId === day.id ? 'rotate-180' : ''
-                    }`}
-                  />
-                </div>
-              </button>
+            <div key={day.id} className="space-y-4">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <button
+                  onClick={() => setExpandedDayId(expandedDayId === day.id ? null : day.id)}
+                  className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                >
+                  <div className="text-left">
+                    <h3 className="font-semibold text-gray-900">
+                      {index + 1}. Gün - {day.dayOfWeek}
+                    </h3>
+                    <p className="text-sm text-gray-500">
+                      {new Date(day.date + 'T00:00:00Z').toLocaleDateString('tr-TR', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric'
+                      })}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                      {day.videos.length} video
+                    </span>
+                    <ChevronDown
+                      className={`w-5 h-5 text-gray-400 transition-transform ${
+                        expandedDayId === day.id ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </div>
+                </button>
 
-              {expandedDayId === day.id && (
-                <div className="border-t border-gray-200 p-4 space-y-4">
+                {expandedDayId === day.id && (
+                  <div className="border-t border-gray-200 p-4 space-y-4">
                   <div className="flex flex-col sm:flex-row gap-4 mb-4 pb-4 border-b border-gray-200">
                     <div className="flex-1">
                       <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -208,22 +275,32 @@ export default function AdminEdit({ week, onSave }: AdminEditProps) {
                   </div>
 
                   <div className="space-y-3">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleAddVideo(day.id, 'story')}
-                        className="flex-1 px-3 py-2 bg-[#0078d4] text-white rounded-lg hover:bg-[#106ebe] transition-colors text-sm font-medium"
-                      >
-                        <Plus className="w-4 h-4 inline mr-1" />
-                        Hikaye Ekle
-                      </button>
-                      <button
-                        onClick={() => handleAddVideo(day.id, 'post')}
-                        className="flex-1 px-3 py-2 bg-[#0078d4] text-white rounded-lg hover:bg-[#106ebe] transition-colors text-sm font-medium"
-                      >
-                        <Plus className="w-4 h-4 inline mr-1" />
-                        Post Ekle
-                      </button>
-                    </div>
+                    {activeDropzone?.dayId === day.id ? (
+                      <div className="space-y-3">
+                        <VideoDropzone
+                          type={activeDropzone.type}
+                          onVideoUploaded={handleVideoUploaded(day.id, activeDropzone.type)}
+                          onCancel={handleCancelDropzone}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleAddVideo(day.id, 'story')}
+                          className="flex-1 px-3 py-2 bg-[#0078d4] text-white rounded-lg hover:bg-[#106ebe] transition-colors text-sm font-medium"
+                        >
+                          <Plus className="w-4 h-4 inline mr-1" />
+                          Hikaye Ekle
+                        </button>
+                        <button
+                          onClick={() => handleAddVideo(day.id, 'post')}
+                          className="flex-1 px-3 py-2 bg-[#0078d4] text-white rounded-lg hover:bg-[#106ebe] transition-colors text-sm font-medium"
+                        >
+                          <Plus className="w-4 h-4 inline mr-1" />
+                          Post Ekle
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4 space-y-3">
@@ -244,38 +321,71 @@ export default function AdminEdit({ week, onSave }: AdminEditProps) {
                             </button>
                           </div>
                           <p className="text-xs text-gray-600 break-all mb-2 truncate">{video.url}</p>
-                          <button
-                            onClick={() => handleUpdateVideoUrl(day.id, video.id)}
-                            className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
-                          >
-                            URL Düzenle
-                          </button>
+                          {video.type === 'post' && (
+                            <div className="mb-2">
+                              <p className="text-xs text-gray-500 mb-1">Açıklama:</p>
+                              {editingDescription?.dayId === day.id && editingDescription?.videoId === video.id ? (
+                                <div className="space-y-2">
+                                  <textarea
+                                    value={descriptionValue}
+                                    onChange={(e) => setDescriptionValue(e.target.value)}
+                                    placeholder="Gönderi açıklamasını girin..."
+                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-[#0078d4] focus:border-transparent resize-none"
+                                    rows={3}
+                                  />
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => handleSaveDescription(day.id, video.id)}
+                                      className="text-xs px-2 py-1 bg-[#0078d4] text-white rounded hover:bg-[#106ebe] transition-colors"
+                                    >
+                                      Kaydet
+                                    </button>
+                                    <button
+                                      onClick={handleCancelEditDescription}
+                                      className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
+                                    >
+                                      İptal
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  <p className="text-xs text-gray-700 bg-white p-2 rounded min-h-[40px]">
+                                    {video.description || <span className="text-gray-400 italic">Açıklama yok</span>}
+                                  </p>
+                                  <button
+                                    onClick={() => handleStartEditDescription(day.id, video.id)}
+                                    className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                                  >
+                                    Açıklama Düzenle
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleUpdateVideoUrl(day.id, video.id)}
+                              className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
+                            >
+                              URL Düzenle
+                            </button>
+                          </div>
                         </div>
                       ))
                     )}
                   </div>
-
-                  {index < currentWeek.days.length - 1 && (
-                    <button
-                      onClick={() => handleAddDay(day.date)}
-                      className="w-full mt-4 px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium"
-                    >
-                      <Plus className="w-4 h-4 inline mr-1" />
-                      Sonra Gün Ekle
-                    </button>
-                  )}
-
-                  {index === currentWeek.days.length - 1 && (
-                    <button
-                      onClick={() => handleAddDay(day.date)}
-                      className="w-full mt-4 px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium"
-                    >
-                      <Plus className="w-4 h-4 inline mr-1" />
-                      Yeni Gün Ekle
-                    </button>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
+              
+              <button
+                onClick={() => handleAddDay(day.date)}
+                className="w-full px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium border border-green-200"
+              >
+                <Plus className="w-4 h-4 inline mr-1" />
+                Bu Günden Sonra Yeni Gün Ekle
+              </button>
             </div>
           ))}
         </div>
@@ -283,7 +393,14 @@ export default function AdminEdit({ week, onSave }: AdminEditProps) {
         {currentWeek.days.length === 0 && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
             <p className="text-gray-500 mb-4">Bu hafta için gün eklenmedi</p>
-            <p className="text-xs text-gray-400">Yönetici modunda günleri yönetebilirsiniz</p>
+            <p className="text-xs text-gray-400 mb-6">Yönetici modunda günleri yönetebilirsiniz</p>
+            <button
+              onClick={() => handleAddDay()}
+              className="px-6 py-3 bg-[#0078d4] text-white rounded-lg hover:bg-[#106ebe] transition-colors text-sm font-medium inline-flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              İlk Günü Ekle
+            </button>
           </div>
         )}
       </div>
