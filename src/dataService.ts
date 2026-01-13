@@ -20,7 +20,16 @@ const getAccessToken = async (): Promise<string> => {
     throw new Error('Authentication provider bulunamadı');
   }
 
-  const account = await provider.getAccount();
+  // Defensive Coding: Account kontrolü
+  let account: any = null;
+  try {
+    if (typeof (provider as any).getAccount === 'function') {
+      account = await (provider as any).getAccount();
+    }
+  } catch (e) {
+    console.warn('getAccessToken: getAccount hatası:', e);
+  }
+  
   if (!account) {
     throw new Error('Kullanıcı giriş yapmamış');
   }
@@ -80,8 +89,11 @@ const getSiteId = async (): Promise<string> => {
     // Graph API ile site bilgisini al
     const endpoint = `/sites/${hostname}:${sitePath}`;
     const siteData = await graphRequest(endpoint);
+    if (!siteData?.id || typeof siteData.id !== 'string') {
+      throw new Error('Site ID alınamadı');
+    }
     cachedSiteId = siteData.id;
-    return cachedSiteId;
+    return siteData.id;
   } catch (error) {
     console.error('Site ID bulunamadı:', error);
     throw error;
@@ -107,13 +119,13 @@ const getListId = async (): Promise<string> => {
       list.displayName === LIST_NAME || list.name === LIST_NAME
     );
     
-    if (!foundList) {
+    if (!foundList || !foundList.id || typeof foundList.id !== 'string') {
       throw new Error(`Liste bulunamadı: ${LIST_NAME}. Mevcut listeler: ${lists.value?.map((l: any) => l.displayName || l.name).join(', ') || 'yok'}`);
     }
 
     cachedListId = foundList.id;
     console.log('List ID bulundu:', cachedListId);
-    return cachedListId;
+    return foundList.id;
   } catch (error) {
     console.error('List ID bulunamadı:', error);
     throw error;
@@ -134,8 +146,12 @@ const getDriveId = async (): Promise<string> => {
       throw new Error(`Drive bulunamadı: ${DOCUMENT_LIBRARY_NAME}`);
     }
 
-    cachedDriveId = drives.value[0].id;
-    return cachedDriveId;
+    const driveId = drives.value[0]?.id;
+    if (!driveId || typeof driveId !== 'string') {
+      throw new Error('Drive ID alınamadı');
+    }
+    cachedDriveId = driveId;
+    return driveId;
   } catch (error) {
     console.error('Drive ID bulunamadı:', error);
     throw error;
@@ -240,20 +256,40 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
     }, {})
   });
   
-  // Schema varsa alan isimlerini eşleştir
+  // Schema varsa alan isimlerini eşleştir - Case-Insensitive ve OData prefix'li arama
   const findFieldValue = (displayName: string, alternativeNames: string[] = []): any => {
     const searchNames = [displayName, ...alternativeNames];
+    const allSearchNames = new Set<string>();
     
-    // Önce schema'dan alan ismini bul
+    // Tüm olası varyasyonları oluştur
+    for (const name of searchNames) {
+      allSearchNames.add(name);
+      allSearchNames.add(name.toLowerCase());
+      allSearchNames.add(name.toUpperCase());
+      // OData prefix'li varyasyonlar
+      allSearchNames.add(`OData__${name}`);
+      allSearchNames.add(`OData__${name.replace(/\s/g, '_')}`);
+      // Underscore ile boşluk değiştirme
+      allSearchNames.add(name.replace(/\s/g, '_'));
+      allSearchNames.add(name.replace(/\s/g, '_').toLowerCase());
+      // x0020 ile boşluk (SharePoint encoding)
+      allSearchNames.add(name.replace(/\s/g, '_x0020_'));
+      allSearchNames.add(name.replace(/\s/g, '_x0020_').toLowerCase());
+    }
+    
+    // Önce schema'dan alan ismini bul (case-insensitive)
     let fieldName: string | null = null;
     if (schema?.columns) {
-      for (const searchName of searchNames) {
-        const col = schema.columns.find((c: any) => 
-          c.displayName === searchName || 
-          c.name === searchName ||
-          c.name.toLowerCase() === searchName.toLowerCase() ||
-          c.displayName?.toLowerCase() === searchName.toLowerCase()
-        );
+      for (const searchName of allSearchNames) {
+        const col = schema.columns.find((c: any) => {
+          const colName = (c.name || '').toLowerCase();
+          const colDisplayName = (c.displayName || '').toLowerCase();
+          const searchLower = searchName.toLowerCase();
+          return colName === searchLower || 
+                 colDisplayName === searchLower ||
+                 colName.includes(searchLower) ||
+                 colDisplayName.includes(searchLower);
+        });
         if (col) {
           fieldName = col.name;
           break;
@@ -261,19 +297,27 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
       }
     }
     
-    // Alan ismini bulamadıysak, alternatif isimleri dene
+    // Schema'dan bulamadıysak, direkt fields içinde ara (case-insensitive)
     if (!fieldName) {
-      for (const searchName of searchNames) {
-        if (fields[searchName] !== undefined && fields[searchName] !== null && fields[searchName] !== '') {
-          fieldName = searchName;
-          break;
+      const fieldKeys = Object.keys(fields);
+      for (const searchName of allSearchNames) {
+        const foundKey = fieldKeys.find(key => 
+          key.toLowerCase() === searchName.toLowerCase() ||
+          key.toLowerCase().includes(searchName.toLowerCase())
+        );
+        if (foundKey) {
+          const value = fields[foundKey];
+          if (value !== undefined && value !== null && value !== '') {
+            fieldName = foundKey;
+            break;
+          }
         }
       }
     }
     
     if (fieldName) {
       const value = fields[fieldName];
-      // Boş string kontrolü
+      // Boş string, null, undefined kontrolü
       if (value === '' || value === null || value === undefined) {
         return null;
       }
@@ -298,41 +342,94 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
   // Alan değerlerini al
   const title = findFieldValue('Title', ['Başlık', 'title']) || `Hafta ${item.id}`;
   
-  // Tarih alanlarını al ve formatla
-  let startDate = findFieldValue('StartDate', ['Start_x0020_Date', 'Start Date', 'startDate', 'StartDate0']);
-  let endDate = findFieldValue('EndDate', ['End_x0020_Date', 'End Date', 'endDate', 'EndDate0']);
+  // Tarih alanlarını al ve formatla - Kapsamlı arama
+  let startDate = findFieldValue('StartDate', [
+    'Start_x0020_Date', 
+    'Start Date', 
+    'startDate', 
+    'StartDate0',
+    'OData__StartDate',
+    'OData__Start_x0020_Date',
+    'Başlangıç Tarihi',
+    'BaslangicTarihi'
+  ]);
   
-  // Eğer tarih alanları bulunamadıysa veya boşsa, logla
+  let endDate = findFieldValue('EndDate', [
+    'End_x0020_Date', 
+    'End Date', 
+    'endDate', 
+    'EndDate0',
+    'OData__EndDate',
+    'OData__End_x0020_Date',
+    'Bitiş Tarihi',
+    'BitisTarihi'
+  ]);
+  
+  // Eğer tarih alanları bulunamadıysa, tüm tarih içeren alanları logla
   if (!startDate || startDate === '') {
+    const dateFields = Object.keys(fields).filter(k => {
+      const lower = k.toLowerCase();
+      return lower.includes('date') || 
+             lower.includes('start') || 
+             lower.includes('tarih') ||
+             lower.includes('begin') ||
+             lower.includes('from');
+    });
     console.warn('StartDate alanı bulunamadı veya boş:', {
       itemId: item.id,
-      availableFields: Object.keys(fields).filter(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('start') || k.toLowerCase().includes('tarih'))
+      title: fields.Title || fields.title || 'N/A',
+      availableDateFields: dateFields,
+      allFields: Object.keys(fields)
     });
     startDate = '';
-  } else if (typeof startDate === 'string') {
+  } else {
     // Tarih string'ini normalize et
-    const parsed = parseDate(startDate);
-    if (parsed) {
-      startDate = getDateString(parsed);
+    if (typeof startDate === 'string') {
+      const parsed = parseDate(startDate);
+      if (parsed) {
+        startDate = getDateString(parsed);
+      } else {
+        console.warn('StartDate parse edilemedi:', startDate, 'Tip:', typeof startDate);
+        startDate = '';
+      }
+    } else if (startDate instanceof Date) {
+      startDate = getDateString(startDate);
     } else {
-      console.warn('StartDate parse edilemedi:', startDate);
+      console.warn('StartDate beklenmeyen tip:', typeof startDate, startDate);
       startDate = '';
     }
   }
   
   if (!endDate || endDate === '') {
+    const dateFields = Object.keys(fields).filter(k => {
+      const lower = k.toLowerCase();
+      return lower.includes('date') || 
+             lower.includes('end') || 
+             lower.includes('tarih') ||
+             lower.includes('finish') ||
+             lower.includes('to');
+    });
     console.warn('EndDate alanı bulunamadı veya boş:', {
       itemId: item.id,
-      availableFields: Object.keys(fields).filter(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('end') || k.toLowerCase().includes('tarih'))
+      title: fields.Title || fields.title || 'N/A',
+      availableDateFields: dateFields,
+      allFields: Object.keys(fields)
     });
     endDate = '';
-  } else if (typeof endDate === 'string') {
+  } else {
     // Tarih string'ini normalize et
-    const parsed = parseDate(endDate);
-    if (parsed) {
-      endDate = getDateString(parsed);
+    if (typeof endDate === 'string') {
+      const parsed = parseDate(endDate);
+      if (parsed) {
+        endDate = getDateString(parsed);
+      } else {
+        console.warn('EndDate parse edilemedi:', endDate, 'Tip:', typeof endDate);
+        endDate = '';
+      }
+    } else if (endDate instanceof Date) {
+      endDate = getDateString(endDate);
     } else {
-      console.warn('EndDate parse edilemedi:', endDate);
+      console.warn('EndDate beklenmeyen tip:', typeof endDate, endDate);
       endDate = '';
     }
   }
@@ -477,7 +574,7 @@ export const getWeeks = async (): Promise<Week[]> => {
     
     // Eğer StartDate ile sıralama yapamadıysak, manuel sırala
     if (!hasStartDate) {
-      weeks.sort((a, b) => {
+      weeks.sort((a: Week, b: Week) => {
         const dateA = parseDate(a.startDate);
         const dateB = parseDate(b.startDate);
         const timeA = dateA ? dateA.getTime() : 0;
@@ -545,7 +642,7 @@ const ensureRequiredFields = async (): Promise<void> => {
     const fieldsToAdd: Array<{ displayName: string; name: string; type: string }> = [];
     
     // StartDate alanını kontrol et
-    if (!existingFields.some(f => f.includes('startdate') || f.includes('start_x0020_date'))) {
+    if (!existingFields.some((f: string) => f.includes('startdate') || f.includes('start_x0020_date'))) {
       fieldsToAdd.push({
         displayName: 'StartDate',
         name: 'StartDate',
@@ -554,7 +651,7 @@ const ensureRequiredFields = async (): Promise<void> => {
     }
     
     // EndDate alanını kontrol et
-    if (!existingFields.some(f => f.includes('enddate') || f.includes('end_x0020_date'))) {
+    if (!existingFields.some((f: string) => f.includes('enddate') || f.includes('end_x0020_date'))) {
       fieldsToAdd.push({
         displayName: 'EndDate',
         name: 'EndDate',
@@ -563,7 +660,7 @@ const ensureRequiredFields = async (): Promise<void> => {
     }
     
     // Days alanını kontrol et
-    if (!existingFields.some(f => f.includes('days'))) {
+    if (!existingFields.some((f: string) => f.includes('days'))) {
       fieldsToAdd.push({
         displayName: 'Days',
         name: 'Days',
@@ -628,8 +725,9 @@ const ensureRequiredFields = async (): Promise<void> => {
   }
 };
 
-// Alan isimlerini eşleştir (display name'den internal name'e)
-const getFieldName = (displayName: string, schema: any): string => {
+// Alan isimlerini eşleştir (display name'den internal name'e) - Şu an kullanılmıyor
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _getFieldName = (displayName: string, schema: any): string => {
   if (!schema?.columns) return displayName;
   
   const column = schema.columns.find((c: any) => 
@@ -730,7 +828,7 @@ export const removeWeek = async (weekId: string): Promise<boolean> => {
   }
 };
 
-export const addDayToWeek = async (weekId: string, afterDateString: string): Promise<Day | null> => {
+export const addDayToWeek = async (weekId: string, _afterDateString?: string): Promise<Day | null> => {
   try {
     const week = await getWeekById(weekId);
     if (!week) {
@@ -738,18 +836,31 @@ export const addDayToWeek = async (weekId: string, afterDateString: string): Pro
       return null;
     }
 
-    // Hafta tarihlerini kontrol et
+    // Hafta tarihlerini kontrol et - Defensive Coding
     if (!week.startDate || week.startDate === '' || !week.endDate || week.endDate === '') {
-      console.error('addDayToWeek: Hafta tarihleri boş:', {
+      console.warn('addDayToWeek: Hafta tarihleri boş, varsayılan tarih aralığı kullanılıyor:', {
         startDate: week.startDate,
         endDate: week.endDate,
         weekId,
         weekTitle: week.title
       });
       
-      // Eğer tarihler boşsa, kullanıcıya bilgi ver ve işlemi durdur
-      alert('Bu haftanın başlangıç ve bitiş tarihleri eksik. Lütfen önce hafta bilgilerini güncelleyin.');
-      return null;
+      // Tarihler boşsa, bugünden itibaren 7 günlük bir aralık oluştur
+      const today = new Date();
+      const weekStart = getWeekStartDate(today);
+      const weekEnd = getWeekEndDate(weekStart);
+      
+      // Hafta objesini güncelle (geçici olarak)
+      week.startDate = getDateString(weekStart);
+      week.endDate = getDateString(weekEnd);
+      
+      console.log('addDayToWeek: Varsayılan tarih aralığı oluşturuldu:', {
+        startDate: week.startDate,
+        endDate: week.endDate
+      });
+      
+      // Kullanıcıya bilgi ver (opsiyonel - toast message için)
+      // alert('Hafta tarihleri eksikti, otomatik olarak bugünden itibaren 7 günlük aralık oluşturuldu.');
     }
 
     const weekStartDate = parseDate(week.startDate);
@@ -761,8 +872,94 @@ export const addDayToWeek = async (weekId: string, afterDateString: string): Pro
         endDate: week.endDate,
         weekId
       });
-      alert('Hafta tarihleri geçersiz format. Lütfen hafta bilgilerini kontrol edin.');
-      return null;
+      
+      // Son çare: Bugünden itibaren tarih oluştur
+      const today = new Date();
+      const weekStart = getWeekStartDate(today);
+      const weekEnd = getWeekEndDate(weekStart);
+      
+      const fallbackStart = getDateString(weekStart);
+      const fallbackEnd = getDateString(weekEnd);
+      
+      console.warn('addDayToWeek: Fallback tarih aralığı kullanılıyor:', {
+        fallbackStart,
+        fallbackEnd
+      });
+      
+      // Haftayı güncelle ve kaydet
+      week.startDate = fallbackStart;
+      week.endDate = fallbackEnd;
+      await saveWeek(week);
+      
+      // Parse et
+      const parsedStart = parseDate(fallbackStart);
+      const parsedEnd = parseDate(fallbackEnd);
+      
+      if (!parsedStart || !parsedEnd) {
+        alert('Hafta tarihleri oluşturulamadı. Lütfen sayfayı yenileyin ve tekrar deneyin.');
+        return null;
+      }
+      
+      // Fallback tarihleri kullan
+      const finalStart = parsedStart;
+      const finalEnd = parsedEnd;
+      
+      // Devam et...
+      let nextDate: Date | null = null;
+      
+      if (week.days.length === 0) {
+        nextDate = new Date(finalStart);
+      } else {
+        const validDates = week.days
+          .map(d => {
+            const parsed = parseDate(d.date);
+            return parsed ? parsed.getTime() : null;
+          })
+          .filter((time): time is number => time !== null)
+          .sort((a, b) => b - a);
+
+        if (validDates.length === 0) {
+          nextDate = new Date(finalStart);
+        } else {
+          const lastDate = new Date(validDates[0]);
+          nextDate = new Date(lastDate);
+          nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+        }
+      }
+
+      if (!nextDate || isNaN(nextDate.getTime())) {
+        console.error('addDayToWeek: Geçersiz nextDate oluşturuldu');
+        return null;
+      }
+
+      const newDateString = getDateString(nextDate);
+      const newDateParsed = parseDate(newDateString);
+      
+      if (!newDateParsed || newDateParsed > finalEnd) {
+        console.warn('addDayToWeek: Yeni tarih hafta bitiş tarihinden sonra');
+        return null;
+      }
+
+      const newDay: Day = {
+        id: `d${weekId}-${Date.now()}`,
+        date: newDateString,
+        dayOfWeek: getDayOfWeek(newDateString),
+        videos: []
+      };
+
+      const insertIndex = week.days.findIndex(d => {
+        const dayDate = parseDate(d.date);
+        return dayDate && dayDate.getTime() > newDateParsed.getTime();
+      });
+
+      if (insertIndex === -1) {
+        week.days.push(newDay);
+      } else {
+        week.days.splice(insertIndex, 0, newDay);
+      }
+
+      await saveWeek(week);
+      return newDay;
     }
 
     let nextDate: Date | null = null;
@@ -936,82 +1133,229 @@ export const updateDayDate = async (weekId: string, dayId: string, newDateString
 
 export const addVideoToDay = async (weekId: string, dayId: string, video: Omit<Video, 'id'>): Promise<Video | null> => {
   try {
-    const week = await getWeekById(weekId);
-    if (!week) return null;
+    // Defensive Coding: Input validasyonu
+    if (!weekId || !dayId) {
+      console.error('addVideoToDay: Geçersiz parametreler:', { weekId, dayId });
+      return null;
+    }
 
-    const day = week.days.find(d => d.id === dayId);
-    if (!day) return null;
+    if (!video || (!video.url && video.url !== '')) {
+      console.error('addVideoToDay: Geçersiz video objesi:', video);
+      return null;
+    }
+
+    const week = await getWeekById(weekId);
+    if (!week) {
+      console.error('addVideoToDay: Hafta bulunamadı:', weekId);
+      return null;
+    }
+
+    // Defensive Coding: days array kontrolü
+    if (!week.days || !Array.isArray(week.days)) {
+      console.error('addVideoToDay: Geçersiz days array:', week.days);
+      week.days = [];
+    }
+
+    const day = week.days.find(d => d?.id === dayId);
+    if (!day) {
+      console.error('addVideoToDay: Gün bulunamadı:', { dayId, availableDays: week.days.map(d => d?.id) });
+      return null;
+    }
+
+    // Defensive Coding: videos array kontrolü
+    if (!day.videos || !Array.isArray(day.videos)) {
+      console.warn('addVideoToDay: Geçersiz videos array, yeni array oluşturuluyor');
+      day.videos = [];
+    }
+
+    // Defensive Coding: Video URL validasyonu
+    const videoUrl = video.url?.trim() || '';
+    if (!videoUrl) {
+      console.error('addVideoToDay: Boş video URL');
+      return null;
+    }
 
     const newVideo: Video = {
-      ...video,
-      id: `v${Date.now()}`
+      id: `v${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      url: videoUrl,
+      type: video.type || 'story', // Varsayılan tip
+      description: video.description?.trim() || undefined // Optional chaining ve null coalescing
     };
 
     day.videos.push(newVideo);
     await saveWeek(week);
+    
+    console.log('addVideoToDay: Video başarıyla eklendi:', { 
+      videoId: newVideo.id, 
+      type: newVideo.type,
+      urlLength: newVideo.url.length 
+    });
+    
     return newVideo;
   } catch (error) {
     console.error('Video eklenemedi:', error);
+    if (error instanceof Error) {
+      console.error('Hata detayı:', error.message, error.stack);
+    }
     return null;
   }
 };
 
 export const removeVideoFromDay = async (weekId: string, dayId: string, videoId: string): Promise<boolean> => {
   try {
+    // Defensive Coding: Input validasyonu
+    if (!weekId || !dayId || !videoId) {
+      console.error('removeVideoFromDay: Geçersiz parametreler:', { weekId, dayId, videoId });
+      return false;
+    }
+
     const week = await getWeekById(weekId);
-    if (!week) return false;
+    if (!week) {
+      console.error('removeVideoFromDay: Hafta bulunamadı:', weekId);
+      return false;
+    }
 
-    const day = week.days.find(d => d.id === dayId);
-    if (!day) return false;
+    // Defensive Coding: days array kontrolü
+    if (!week.days || !Array.isArray(week.days)) {
+      console.error('removeVideoFromDay: Geçersiz days array');
+      return false;
+    }
 
-    const index = day.videos.findIndex(v => v.id === videoId);
-    if (index === -1) return false;
+    const day = week.days.find(d => d?.id === dayId);
+    if (!day) {
+      console.error('removeVideoFromDay: Gün bulunamadı:', dayId);
+      return false;
+    }
+
+    // Defensive Coding: videos array kontrolü
+    if (!day.videos || !Array.isArray(day.videos)) {
+      console.warn('removeVideoFromDay: Geçersiz videos array');
+      return false;
+    }
+
+    const index = day.videos.findIndex(v => v?.id === videoId);
+    if (index === -1) {
+      console.warn('removeVideoFromDay: Video bulunamadı:', { videoId, availableVideos: day.videos.map(v => v?.id) });
+      return false;
+    }
 
     day.videos.splice(index, 1);
     await saveWeek(week);
+    
+    console.log('removeVideoFromDay: Video başarıyla silindi:', videoId);
     return true;
   } catch (error) {
     console.error('Video silinemedi:', error);
+    if (error instanceof Error) {
+      console.error('Hata detayı:', error.message, error.stack);
+    }
     return false;
   }
 };
 
 export const updateVideoUrl = async (weekId: string, dayId: string, videoId: string, newUrl: string): Promise<boolean> => {
   try {
+    // Defensive Coding: Input validasyonu
+    if (!weekId || !dayId || !videoId) {
+      console.error('updateVideoUrl: Geçersiz parametreler:', { weekId, dayId, videoId });
+      return false;
+    }
+
+    const trimmedUrl = newUrl?.trim() || '';
+    if (!trimmedUrl) {
+      console.error('updateVideoUrl: Boş URL');
+      return false;
+    }
+
     const week = await getWeekById(weekId);
-    if (!week) return false;
+    if (!week) {
+      console.error('updateVideoUrl: Hafta bulunamadı:', weekId);
+      return false;
+    }
 
-    const day = week.days.find(d => d.id === dayId);
-    if (!day) return false;
+    // Defensive Coding: Optional chaining
+    const day = week.days?.find(d => d?.id === dayId);
+    if (!day) {
+      console.error('updateVideoUrl: Gün bulunamadı:', dayId);
+      return false;
+    }
 
-    const video = day.videos.find(v => v.id === videoId);
-    if (!video) return false;
+    // Defensive Coding: videos array kontrolü
+    if (!day.videos || !Array.isArray(day.videos)) {
+      console.error('updateVideoUrl: Geçersiz videos array');
+      return false;
+    }
 
-    video.url = newUrl;
+    const video = day.videos.find(v => v?.id === videoId);
+    if (!video) {
+      console.error('updateVideoUrl: Video bulunamadı:', videoId);
+      return false;
+    }
+
+    video.url = trimmedUrl;
     await saveWeek(week);
+    
+    console.log('updateVideoUrl: Video URL başarıyla güncellendi:', { videoId, urlLength: trimmedUrl.length });
     return true;
   } catch (error) {
     console.error('Video URL güncellenemedi:', error);
+    if (error instanceof Error) {
+      console.error('Hata detayı:', error.message, error.stack);
+    }
     return false;
   }
 };
 
 export const updateVideoDescription = async (weekId: string, dayId: string, videoId: string, description: string): Promise<boolean> => {
   try {
+    // Defensive Coding: Input validasyonu
+    if (!weekId || !dayId || !videoId) {
+      console.error('updateVideoDescription: Geçersiz parametreler:', { weekId, dayId, videoId });
+      return false;
+    }
+
+    // Defensive Coding: description null/undefined olabilir
+    const trimmedDescription = description?.trim() || '';
+
     const week = await getWeekById(weekId);
-    if (!week) return false;
+    if (!week) {
+      console.error('updateVideoDescription: Hafta bulunamadı:', weekId);
+      return false;
+    }
 
-    const day = week.days.find(d => d.id === dayId);
-    if (!day) return false;
+    // Defensive Coding: Optional chaining
+    const day = week.days?.find(d => d?.id === dayId);
+    if (!day) {
+      console.error('updateVideoDescription: Gün bulunamadı:', dayId);
+      return false;
+    }
 
-    const video = day.videos.find(v => v.id === videoId);
-    if (!video) return false;
+    // Defensive Coding: videos array kontrolü
+    if (!day.videos || !Array.isArray(day.videos)) {
+      console.error('updateVideoDescription: Geçersiz videos array');
+      return false;
+    }
 
-    video.description = description;
+    const video = day.videos.find(v => v?.id === videoId);
+    if (!video) {
+      console.error('updateVideoDescription: Video bulunamadı:', videoId);
+      return false;
+    }
+
+    // Defensive Coding: Null coalescing - boş string yerine undefined
+    video.description = trimmedDescription || undefined;
     await saveWeek(week);
+    
+    console.log('updateVideoDescription: Video açıklaması başarıyla güncellendi:', { 
+      videoId, 
+      descriptionLength: trimmedDescription.length 
+    });
     return true;
   } catch (error) {
     console.error('Video açıklaması güncellenemedi:', error);
+    if (error instanceof Error) {
+      console.error('Hata detayı:', error.message, error.stack);
+    }
     return false;
   }
 };
@@ -1182,11 +1526,39 @@ export const ensureNextWeekExists = async (): Promise<Week | null> => {
 };
 
 // Video Yükleme - Large File Upload API
-export const uploadVideo = async (file: File): Promise<string> => {
+export const uploadVideo = async (file: File | null | undefined): Promise<string> => {
   try {
+    // Defensive Coding: File validasyonu
+    if (!file) {
+      throw new Error('Dosya seçilmedi');
+    }
+
+    if (!(file instanceof File)) {
+      throw new Error('Geçersiz dosya tipi');
+    }
+
+    // Defensive Coding: Dosya boyutu kontrolü (opsiyonel - 500MB limit)
+    const maxSize = 500 * 1024 * 1024; // 500MB
+    if (file.size > maxSize) {
+      throw new Error(`Dosya boyutu çok büyük. Maksimum: ${(maxSize / 1024 / 1024).toFixed(0)}MB`);
+    }
+
+    if (file.size === 0) {
+      throw new Error('Dosya boş');
+    }
+
+    // Defensive Coding: Dosya tipi kontrolü
+    if (!file.type.startsWith('video/')) {
+      console.warn('uploadVideo: Dosya tipi video değil:', file.type);
+      // Yine de devam et, bazı tarayıcılar type'ı yanlış gösterebilir
+    }
+
     const driveId = await getDriveId();
     const siteId = await getSiteId();
-    const fileName = `videos/${Date.now()}-${file.name}`;
+    
+    // Defensive Coding: Dosya adı temizleme
+    const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const fileName = `videos/${Date.now()}-${sanitizedFileName}`;
     
     // 1. Upload session oluştur
     const uploadSessionResponse = await graphRequest(
