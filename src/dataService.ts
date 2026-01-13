@@ -145,8 +145,13 @@ const getDriveId = async (): Promise<string> => {
 // Yardımcı Fonksiyonlar
 // Güvenli tarih parse fonksiyonu
 const parseDate = (dateInput: string | Date | undefined | null): Date | null => {
-  if (!dateInput) {
-    console.error('parseDate: Geçersiz tarih girişi (boş/undefined/null):', dateInput);
+  // Boş/undefined/null kontrolü
+  if (dateInput === null || dateInput === undefined) {
+    return null;
+  }
+  
+  // Boş string kontrolü
+  if (typeof dateInput === 'string' && dateInput.trim() === '') {
     return null;
   }
 
@@ -155,12 +160,17 @@ const parseDate = (dateInput: string | Date | undefined | null): Date | null => 
   if (dateInput instanceof Date) {
     date = dateInput;
   } else if (typeof dateInput === 'string') {
+    const trimmed = dateInput.trim();
+    if (trimmed === '') {
+      return null;
+    }
+    
     // ISO formatını dene (YYYY-MM-DD veya YYYY-MM-DDTHH:mm:ss)
-    if (dateInput.includes('T')) {
-      date = new Date(dateInput);
+    if (trimmed.includes('T')) {
+      date = new Date(trimmed);
     } else {
       // Sadece tarih varsa UTC olarak parse et
-      date = new Date(dateInput + 'T00:00:00Z');
+      date = new Date(trimmed + 'T00:00:00Z');
     }
   } else {
     console.error('parseDate: Geçersiz tarih tipi:', typeof dateInput, dateInput);
@@ -221,59 +231,121 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
   console.log('Mapping list item:', { 
     id: item.id, 
     fieldKeys: Object.keys(fields),
-    sampleFields: Object.keys(fields).slice(0, 10).reduce((acc: any, key) => {
-      acc[key] = typeof fields[key] === 'string' ? fields[key].substring(0, 50) : fields[key];
+    sampleFields: Object.keys(fields).slice(0, 15).reduce((acc: any, key) => {
+      const value = fields[key];
+      if (value !== null && value !== undefined) {
+        acc[key] = typeof value === 'string' ? value.substring(0, 50) : value;
+      }
       return acc;
     }, {})
   });
   
   // Schema varsa alan isimlerini eşleştir
-  let titleField = 'Title';
-  let startDateField = 'StartDate';
-  let endDateField = 'EndDate';
-  let statusField = 'Status';
-  let daysField = 'Days';
-  
-  if (schema?.columns) {
-    const findField = (displayName: string) => {
-      const col = schema.columns.find((c: any) => 
-        c.displayName === displayName || c.name === displayName
-      );
-      return col?.name || displayName;
-    };
+  const findFieldValue = (displayName: string, alternativeNames: string[] = []): any => {
+    const searchNames = [displayName, ...alternativeNames];
     
-    titleField = findField('Title');
-    startDateField = findField('StartDate');
-    endDateField = findField('EndDate');
-    statusField = findField('Status');
-    daysField = findField('Days');
-  }
+    // Önce schema'dan alan ismini bul
+    let fieldName: string | null = null;
+    if (schema?.columns) {
+      for (const searchName of searchNames) {
+        const col = schema.columns.find((c: any) => 
+          c.displayName === searchName || 
+          c.name === searchName ||
+          c.name.toLowerCase() === searchName.toLowerCase() ||
+          c.displayName?.toLowerCase() === searchName.toLowerCase()
+        );
+        if (col) {
+          fieldName = col.name;
+          break;
+        }
+      }
+    }
+    
+    // Alan ismini bulamadıysak, alternatif isimleri dene
+    if (!fieldName) {
+      for (const searchName of searchNames) {
+        if (fields[searchName] !== undefined && fields[searchName] !== null && fields[searchName] !== '') {
+          fieldName = searchName;
+          break;
+        }
+      }
+    }
+    
+    if (fieldName) {
+      const value = fields[fieldName];
+      // Boş string kontrolü
+      if (value === '' || value === null || value === undefined) {
+        return null;
+      }
+      return value;
+    }
+    
+    return null;
+  };
   
   // JSON alanlarını parse et
   let days: Day[] = [];
   try {
-    const daysValue = fields[daysField] || fields.Days || fields.days || fields.DaysJson || fields.daysJson;
+    const daysValue = findFieldValue('Days', ['DaysJson', 'days', 'daysJson']);
     if (daysValue) {
       days = typeof daysValue === 'string' ? JSON.parse(daysValue) : daysValue;
     }
   } catch (e) {
-    console.error('Days parse hatası:', e, { daysField, value: fields[daysField] });
+    console.error('Days parse hatası:', e);
     days = [];
   }
 
   // Alan değerlerini al
-  const title = fields[titleField] || fields.Title || fields.title || `Hafta ${item.id}`;
-  const startDate = fields[startDateField] || fields.StartDate || fields.startDate || fields.StartDate0 || '';
-  const endDate = fields[endDateField] || fields.EndDate || fields.endDate || fields.EndDate0 || '';
-  const statusValue = fields[statusField] || fields.Status || fields.status;
+  const title = findFieldValue('Title', ['Başlık', 'title']) || `Hafta ${item.id}`;
+  
+  // Tarih alanlarını al ve formatla
+  let startDate = findFieldValue('StartDate', ['Start_x0020_Date', 'Start Date', 'startDate', 'StartDate0']);
+  let endDate = findFieldValue('EndDate', ['End_x0020_Date', 'End Date', 'endDate', 'EndDate0']);
+  
+  // Eğer tarih alanları bulunamadıysa veya boşsa, logla
+  if (!startDate || startDate === '') {
+    console.warn('StartDate alanı bulunamadı veya boş:', {
+      itemId: item.id,
+      availableFields: Object.keys(fields).filter(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('start') || k.toLowerCase().includes('tarih'))
+    });
+    startDate = '';
+  } else if (typeof startDate === 'string') {
+    // Tarih string'ini normalize et
+    const parsed = parseDate(startDate);
+    if (parsed) {
+      startDate = getDateString(parsed);
+    } else {
+      console.warn('StartDate parse edilemedi:', startDate);
+      startDate = '';
+    }
+  }
+  
+  if (!endDate || endDate === '') {
+    console.warn('EndDate alanı bulunamadı veya boş:', {
+      itemId: item.id,
+      availableFields: Object.keys(fields).filter(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('end') || k.toLowerCase().includes('tarih'))
+    });
+    endDate = '';
+  } else if (typeof endDate === 'string') {
+    // Tarih string'ini normalize et
+    const parsed = parseDate(endDate);
+    if (parsed) {
+      endDate = getDateString(parsed);
+    } else {
+      console.warn('EndDate parse edilemedi:', endDate);
+      endDate = '';
+    }
+  }
+  
+  const statusValue = findFieldValue('Status', ['Durum', 'status']);
   const status = (statusValue === 'published' || statusValue === 'draft') 
                   ? statusValue : 'draft';
 
   return {
     id: item.id,
     title,
-    startDate,
-    endDate,
+    startDate: startDate || '',
+    endDate: endDate || '',
     status: status as 'published' | 'draft',
     days: days || []
   };
@@ -667,16 +739,30 @@ export const addDayToWeek = async (weekId: string, afterDateString: string): Pro
     }
 
     // Hafta tarihlerini kontrol et
+    if (!week.startDate || week.startDate === '' || !week.endDate || week.endDate === '') {
+      console.error('addDayToWeek: Hafta tarihleri boş:', {
+        startDate: week.startDate,
+        endDate: week.endDate,
+        weekId,
+        weekTitle: week.title
+      });
+      
+      // Eğer tarihler boşsa, kullanıcıya bilgi ver ve işlemi durdur
+      alert('Bu haftanın başlangıç ve bitiş tarihleri eksik. Lütfen önce hafta bilgilerini güncelleyin.');
+      return null;
+    }
+
     const weekStartDate = parseDate(week.startDate);
     const weekEndDate = parseDate(week.endDate);
 
     if (!weekStartDate || !weekEndDate) {
-      console.error('addDayToWeek: Geçersiz hafta tarihleri:', {
+      console.error('addDayToWeek: Geçersiz hafta tarihleri (parse edilemedi):', {
         startDate: week.startDate,
         endDate: week.endDate,
         weekId
       });
-      throw new Error('Hafta tarihleri geçersiz');
+      alert('Hafta tarihleri geçersiz format. Lütfen hafta bilgilerini kontrol edin.');
+      return null;
     }
 
     let nextDate: Date | null = null;
@@ -1026,8 +1112,24 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
 export const ensureNextWeekExists = async (): Promise<Week | null> => {
   try {
     const existingWeeks = await getWeeks();
-    const lastWeek = existingWeeks.length > 0 
-      ? existingWeeks.reduce((latest, week) => {
+    
+    // Geçerli tarihleri olan haftaları filtrele
+    const validWeeks = existingWeeks.filter(week => {
+      const hasValidDates = week.startDate && week.startDate !== '' && 
+                           week.endDate && week.endDate !== '';
+      if (!hasValidDates) {
+        console.warn('ensureNextWeekExists: Tarihleri eksik hafta atlandı:', {
+          id: week.id,
+          title: week.title,
+          startDate: week.startDate,
+          endDate: week.endDate
+        });
+      }
+      return hasValidDates;
+    });
+    
+    const lastWeek = validWeeks.length > 0 
+      ? validWeeks.reduce((latest, week) => {
           const latestDate = parseDate(latest.endDate);
           const weekDate = parseDate(week.endDate);
           if (!latestDate || !weekDate) return latest;
@@ -1036,12 +1138,13 @@ export const ensureNextWeekExists = async (): Promise<Week | null> => {
       : null;
 
     if (!lastWeek) {
+      console.log('ensureNextWeekExists: Geçerli hafta bulunamadı, yeni hafta oluşturuluyor');
       return await createWeek();
     }
 
     const lastEndDate = parseDate(lastWeek.endDate);
     if (!lastEndDate) {
-      console.error('ensureNextWeekExists: Geçersiz son hafta bitiş tarihi:', lastWeek.endDate);
+      console.error('ensureNextWeekExists: Geçersiz son hafta bitiş tarihi (parse edilemedi):', lastWeek.endDate);
       return null;
     }
 
