@@ -221,61 +221,94 @@ const mapWeekToListItem = async (week: Week): Promise<any> => {
   // Liste şemasını al
   const schema = await getListSchema();
   
-  if (schema?.columns) {
-    console.log('Mevcut liste alanları:', schema.columns.map((c: any) => ({
-      name: c.name,
-      displayName: c.displayName,
-      type: c.text?.type || c.dateTime?.type || c.choice?.type || 'unknown'
-    })));
+  if (!schema?.columns) {
+    throw new Error('Liste şeması alınamadı');
   }
   
-  // Önce mevcut alanları kontrol et
-  const hasStartDate = schema?.columns?.some((c: any) => 
-    c.displayName === 'StartDate' || c.name === 'StartDate' || c.name === 'Start_x0020_Date'
-  );
-  const hasEndDate = schema?.columns?.some((c: any) => 
-    c.displayName === 'EndDate' || c.name === 'EndDate' || c.name === 'End_x0020_Date'
-  );
-  const hasDays = schema?.columns?.some((c: any) => 
-    c.displayName === 'Days' || c.name === 'Days'
-  );
+  // Tüm mevcut alanları logla
+  const allFields = schema.columns.map((c: any) => ({
+    name: c.name,
+    displayName: c.displayName,
+    readOnly: c.readOnly
+  }));
   
-  console.log('Alan kontrolü:', { hasStartDate, hasEndDate, hasDays });
+  console.log('Mevcut liste alanları:', allFields);
   
-  // Alan isimlerini eşleştir - önce mevcut alanları kullan
-  const titleField = schema ? getFieldName('Title', schema) : 'Title';
-  const statusField = schema ? getFieldName('Status', schema) : 'Status';
-  
-  const fields: any = {
-    [titleField]: week.title,
-    [statusField]: week.status
+  // Her alan için mevcut olup olmadığını kontrol et
+  const findField = (displayName: string, alternativeNames: string[] = []): string | null => {
+    const searchNames = [displayName, ...alternativeNames];
+    for (const searchName of searchNames) {
+      const col = schema.columns.find((c: any) => 
+        c.displayName === searchName || 
+        c.name === searchName ||
+        c.name.toLowerCase() === searchName.toLowerCase()
+      );
+      if (col) {
+        console.log(`Alan bulundu: ${displayName} -> ${col.name}`);
+        return col.name;
+      }
+    }
+    console.warn(`Alan bulunamadı: ${displayName}`);
+    return null;
   };
   
-  // Eğer StartDate, EndDate ve Days alanları varsa kullan
-  if (hasStartDate) {
-    const startDateField = schema ? getFieldName('StartDate', schema) : 'StartDate';
+  // Sadece mevcut alanları kullan
+  const fields: any = {};
+  
+  // Title - her zaman mevcut olmalı
+  const titleField = findField('Title', ['Başlık']);
+  if (titleField) {
+    fields[titleField] = week.title;
+  } else {
+    throw new Error('Title alanı bulunamadı');
+  }
+  
+  // Status - kontrol et
+  const statusField = findField('Status', ['Durum']);
+  if (statusField) {
+    fields[statusField] = week.status;
+  } else {
+    console.warn('Status alanı bulunamadı, atlanıyor');
+  }
+  
+  // StartDate - kontrol et
+  const startDateField = findField('StartDate', ['Start_x0020_Date', 'Start Date']);
+  if (startDateField) {
     fields[startDateField] = week.startDate;
+  } else {
+    console.warn('StartDate alanı bulunamadı, atlanıyor');
   }
   
-  if (hasEndDate) {
-    const endDateField = schema ? getFieldName('EndDate', schema) : 'EndDate';
+  // EndDate - kontrol et
+  const endDateField = findField('EndDate', ['End_x0020_Date', 'End Date']);
+  if (endDateField) {
     fields[endDateField] = week.endDate;
+  } else {
+    console.warn('EndDate alanı bulunamadı, atlanıyor');
   }
   
-  if (hasDays) {
-    const daysField = schema ? getFieldName('Days', schema) : 'Days';
+  // Days - kontrol et
+  const daysField = findField('Days', ['DaysJson']);
+  if (daysField) {
     fields[daysField] = JSON.stringify(week.days);
+  } else {
+    console.warn('Days alanı bulunamadı, atlanıyor');
   }
   
   console.log('Saving week with fields:', {
     fieldMappings: {
       title: titleField,
       status: statusField,
-      hasStartDate,
-      hasEndDate,
-      hasDays
+      startDate: startDateField,
+      endDate: endDateField,
+      days: daysField
     },
-    values: fields
+    values: Object.keys(fields).reduce((acc: any, key) => {
+      acc[key] = typeof fields[key] === 'string' && fields[key].length > 100 
+        ? fields[key].substring(0, 100) + '...' 
+        : fields[key];
+      return acc;
+    }, {})
   });
   
   return { fields };
@@ -288,15 +321,35 @@ export const getWeeks = async (): Promise<Week[]> => {
     const siteId = await getSiteId();
     const schema = await getListSchema();
     
+    // StartDate alanının mevcut olup olmadığını kontrol et
+    const hasStartDate = schema?.columns?.some((c: any) => 
+      c.displayName === 'StartDate' || c.name === 'StartDate' || c.name === 'Start_x0020_Date'
+    );
+    
+    // Sıralama için StartDate varsa kullan, yoksa Title kullan
+    const orderByField = hasStartDate ? 'fields/StartDate' : 'fields/Title';
+    const orderDirection = hasStartDate ? 'desc' : 'desc';
+    
     const response = await graphRequest(
-      `/sites/${siteId}/lists/${listId}/items?$expand=fields&$orderby=fields/StartDate desc`
+      `/sites/${siteId}/lists/${listId}/items?$expand=fields&$orderby=${orderByField} ${orderDirection}`
     );
 
     if (!response.value) {
       return [];
     }
 
-    return response.value.map((item: any) => mapListItemToWeek(item, schema));
+    const weeks = response.value.map((item: any) => mapListItemToWeek(item, schema));
+    
+    // Eğer StartDate ile sıralama yapamadıysak, manuel sırala
+    if (!hasStartDate) {
+      weeks.sort((a, b) => {
+        const dateA = a.startDate ? new Date(a.startDate).getTime() : 0;
+        const dateB = b.startDate ? new Date(b.startDate).getTime() : 0;
+        return dateB - dateA;
+      });
+    }
+    
+    return weeks;
   } catch (error) {
     console.error('Haftalar getirilemedi:', error);
     throw error;
@@ -469,7 +522,21 @@ export const saveWeek = async (week: Week): Promise<Week> => {
     }
     
     const listItem = await mapWeekToListItem(week);
-    console.log('Saving week:', { weekId: week.id, listItem });
+    console.log('Saving week:', { 
+      weekId: week.id, 
+      fieldsToSave: Object.keys(listItem.fields),
+      listItem 
+    });
+    
+    // Gönderilecek alanları doğrula
+    const invalidFields = Object.keys(listItem.fields).filter(field => {
+      const exists = listSchema?.columns?.some((c: any) => c.name === field);
+      return !exists;
+    });
+    
+    if (invalidFields.length > 0) {
+      throw new Error(`Geçersiz alan isimleri: ${invalidFields.join(', ')}. Mevcut alanlar: ${listSchema?.columns?.map((c: any) => c.name).join(', ')}`);
+    }
 
     if (week.id && week.id.startsWith('week-')) {
       // Yeni hafta - POST
