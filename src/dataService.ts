@@ -46,6 +46,7 @@ const graphRequest = async (endpoint: string, options: RequestInit = {}): Promis
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'Prefer': 'HonorNonIndexedQueriesWarningMayFailRandomly',
       ...options.headers,
     },
   });
