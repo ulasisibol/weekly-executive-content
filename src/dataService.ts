@@ -221,28 +221,59 @@ const mapWeekToListItem = async (week: Week): Promise<any> => {
   // Liste şemasını al
   const schema = await getListSchema();
   
-  // Alan isimlerini eşleştir
+  if (schema?.columns) {
+    console.log('Mevcut liste alanları:', schema.columns.map((c: any) => ({
+      name: c.name,
+      displayName: c.displayName,
+      type: c.text?.type || c.dateTime?.type || c.choice?.type || 'unknown'
+    })));
+  }
+  
+  // Önce mevcut alanları kontrol et
+  const hasStartDate = schema?.columns?.some((c: any) => 
+    c.displayName === 'StartDate' || c.name === 'StartDate' || c.name === 'Start_x0020_Date'
+  );
+  const hasEndDate = schema?.columns?.some((c: any) => 
+    c.displayName === 'EndDate' || c.name === 'EndDate' || c.name === 'End_x0020_Date'
+  );
+  const hasDays = schema?.columns?.some((c: any) => 
+    c.displayName === 'Days' || c.name === 'Days'
+  );
+  
+  console.log('Alan kontrolü:', { hasStartDate, hasEndDate, hasDays });
+  
+  // Alan isimlerini eşleştir - önce mevcut alanları kullan
   const titleField = schema ? getFieldName('Title', schema) : 'Title';
-  const startDateField = schema ? getFieldName('StartDate', schema) : 'StartDate';
-  const endDateField = schema ? getFieldName('EndDate', schema) : 'EndDate';
   const statusField = schema ? getFieldName('Status', schema) : 'Status';
-  const daysField = schema ? getFieldName('Days', schema) : 'Days';
   
   const fields: any = {
     [titleField]: week.title,
-    [startDateField]: week.startDate,
-    [endDateField]: week.endDate,
-    [statusField]: week.status,
-    [daysField]: JSON.stringify(week.days)
+    [statusField]: week.status
   };
+  
+  // Eğer StartDate, EndDate ve Days alanları varsa kullan
+  if (hasStartDate) {
+    const startDateField = schema ? getFieldName('StartDate', schema) : 'StartDate';
+    fields[startDateField] = week.startDate;
+  }
+  
+  if (hasEndDate) {
+    const endDateField = schema ? getFieldName('EndDate', schema) : 'EndDate';
+    fields[endDateField] = week.endDate;
+  }
+  
+  if (hasDays) {
+    const daysField = schema ? getFieldName('Days', schema) : 'Days';
+    fields[daysField] = JSON.stringify(week.days);
+  }
   
   console.log('Saving week with fields:', {
     fieldMappings: {
       title: titleField,
-      startDate: startDateField,
-      endDate: endDateField,
       status: statusField,
-      days: daysField
+      hasStartDate,
+      hasEndDate,
+      hasDays
     },
     values: fields
   });
@@ -299,12 +330,111 @@ const getListSchema = async (): Promise<any> => {
   try {
     const listId = await getListId();
     const siteId = await getSiteId();
-    const list = await graphRequest(`/sites/${siteId}/lists/${listId}?$expand=columns($select=name,displayName,readOnly,required)`);
+    const list = await graphRequest(`/sites/${siteId}/lists/${listId}?$expand=columns($select=name,displayName,readOnly,required,text,dateTime)`);
     cachedListSchema = list;
     return list;
   } catch (error) {
     console.error('Liste şeması alınamadı:', error);
     return null;
+  }
+};
+
+// Eksik alanları SharePoint listesine ekle
+const ensureRequiredFields = async (): Promise<void> => {
+  try {
+    const listId = await getListId();
+    const siteId = await getSiteId();
+    const schema = await getListSchema();
+    
+    if (!schema?.columns) {
+      console.warn('Liste şeması alınamadı, alan kontrolü yapılamıyor');
+      return;
+    }
+    
+    const existingFields = schema.columns.map((c: any) => c.name.toLowerCase());
+    const fieldsToAdd: Array<{ displayName: string; name: string; type: string }> = [];
+    
+    // StartDate alanını kontrol et
+    if (!existingFields.some(f => f.includes('startdate') || f.includes('start_x0020_date'))) {
+      fieldsToAdd.push({
+        displayName: 'StartDate',
+        name: 'StartDate',
+        type: 'DateTime'
+      });
+    }
+    
+    // EndDate alanını kontrol et
+    if (!existingFields.some(f => f.includes('enddate') || f.includes('end_x0020_date'))) {
+      fieldsToAdd.push({
+        displayName: 'EndDate',
+        name: 'EndDate',
+        type: 'DateTime'
+      });
+    }
+    
+    // Days alanını kontrol et
+    if (!existingFields.some(f => f.includes('days'))) {
+      fieldsToAdd.push({
+        displayName: 'Days',
+        name: 'Days',
+        type: 'Note' // Çok satırlı metin (JSON için)
+      });
+    }
+    
+    // Eksik alanları ekle
+    for (const field of fieldsToAdd) {
+      try {
+        console.log(`Alan ekleniyor: ${field.displayName} (${field.type})`);
+        
+        let fieldDefinition: any;
+        
+        if (field.type === 'DateTime') {
+          fieldDefinition = {
+            '@odata.type': '#microsoft.graph.dateTimeColumn',
+            name: field.name,
+            displayName: field.displayName,
+            dateTime: {
+              format: 'dateOnly'
+            }
+          };
+        } else if (field.type === 'Note') {
+          fieldDefinition = {
+            '@odata.type': '#microsoft.graph.textColumn',
+            name: field.name,
+            displayName: field.displayName,
+            text: {
+              allowMultipleLines: true,
+              maxLength: 10000
+            }
+          };
+        } else {
+          continue; // Bilinmeyen tip, atla
+        }
+        
+        await graphRequest(
+          `/sites/${siteId}/lists/${listId}/columns`,
+          {
+            method: 'POST',
+            body: JSON.stringify(fieldDefinition)
+          }
+        );
+        
+        console.log(`Alan eklendi: ${field.displayName}`);
+        
+        // Cache'i temizle
+        cachedListSchema = null;
+      } catch (error: any) {
+        console.error(`Alan eklenirken hata (${field.displayName}):`, error);
+        // Devam et, diğer alanları eklemeyi dene
+      }
+    }
+    
+    if (fieldsToAdd.length > 0) {
+      console.log(`${fieldsToAdd.length} alan ekleme işlemi tamamlandı`);
+    }
+  } catch (error) {
+    console.error('Alan kontrolü/ekleme hatası:', error);
+    // Hata olsa bile devam et
   }
 };
 
@@ -321,10 +451,13 @@ const getFieldName = (displayName: string, schema: any): string => {
 
 export const saveWeek = async (week: Week): Promise<Week> => {
   try {
+    // Önce eksik alanları kontrol et ve ekle
+    await ensureRequiredFields();
+    
     const listId = await getListId();
     const siteId = await getSiteId();
     
-    // Liste şemasını al ve alan isimlerini kontrol et
+    // Liste şemasını al ve alan isimlerini kontrol et (cache temizlendi, yeniden al)
     const listSchema = await getListSchema();
     if (listSchema?.columns) {
       console.log('Liste alanları:', listSchema.columns.map((c: any) => ({ 
