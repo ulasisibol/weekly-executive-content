@@ -39,6 +39,8 @@ const getAccessToken = async (): Promise<string> => {
 const graphRequest = async (endpoint: string, options: RequestInit = {}): Promise<any> => {
   const token = await getAccessToken();
   
+  console.log('Graph API Request:', endpoint, options.method || 'GET');
+  
   const response = await fetch(`https://graph.microsoft.com/v1.0${endpoint}`, {
     ...options,
     headers: {
@@ -50,7 +52,12 @@ const graphRequest = async (endpoint: string, options: RequestInit = {}): Promis
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Graph API Hatası:', response.status, errorText);
+    console.error('Graph API Hatası:', {
+      endpoint,
+      status: response.status,
+      statusText: response.statusText,
+      error: errorText
+    });
     throw new Error(`Graph API hatası: ${response.status} - ${errorText}`);
   }
 
@@ -88,13 +95,23 @@ const getListId = async (): Promise<string> => {
 
   try {
     const siteId = await getSiteId();
-    const lists = await graphRequest(`/sites/${siteId}/lists?$filter=displayName eq '${LIST_NAME}'`);
+    console.log('Liste aranıyor:', LIST_NAME);
     
-    if (!lists.value || lists.value.length === 0) {
-      throw new Error(`Liste bulunamadı: ${LIST_NAME}`);
+    // Önce tüm listeleri al ve filtrele
+    const lists = await graphRequest(`/sites/${siteId}/lists?$select=id,displayName,name`);
+    
+    console.log('Bulunan listeler:', lists.value?.map((l: any) => ({ id: l.id, displayName: l.displayName, name: l.name })));
+    
+    const foundList = lists.value?.find((list: any) => 
+      list.displayName === LIST_NAME || list.name === LIST_NAME
+    );
+    
+    if (!foundList) {
+      throw new Error(`Liste bulunamadı: ${LIST_NAME}. Mevcut listeler: ${lists.value?.map((l: any) => l.displayName || l.name).join(', ') || 'yok'}`);
     }
 
-    cachedListId = lists.value[0].id;
+    cachedListId = foundList.id;
+    console.log('List ID bulundu:', cachedListId);
     return cachedListId;
   } catch (error) {
     console.error('List ID bulunamadı:', error);
@@ -135,41 +152,102 @@ const getDayOfWeek = (dateString: string): string => {
 };
 
 // SharePoint List Item'ı Week tipine dönüştür
-const mapListItemToWeek = (item: any): Week => {
+const mapListItemToWeek = (item: any, schema?: any): Week => {
   const fields = item.fields || {};
+  
+  console.log('Mapping list item:', { 
+    id: item.id, 
+    fieldKeys: Object.keys(fields),
+    sampleFields: Object.keys(fields).slice(0, 10).reduce((acc: any, key) => {
+      acc[key] = typeof fields[key] === 'string' ? fields[key].substring(0, 50) : fields[key];
+      return acc;
+    }, {})
+  });
+  
+  // Schema varsa alan isimlerini eşleştir
+  let titleField = 'Title';
+  let startDateField = 'StartDate';
+  let endDateField = 'EndDate';
+  let statusField = 'Status';
+  let daysField = 'Days';
+  
+  if (schema?.columns) {
+    const findField = (displayName: string) => {
+      const col = schema.columns.find((c: any) => 
+        c.displayName === displayName || c.name === displayName
+      );
+      return col?.name || displayName;
+    };
+    
+    titleField = findField('Title');
+    startDateField = findField('StartDate');
+    endDateField = findField('EndDate');
+    statusField = findField('Status');
+    daysField = findField('Days');
+  }
   
   // JSON alanlarını parse et
   let days: Day[] = [];
   try {
-    if (fields.Days) {
-      days = typeof fields.Days === 'string' ? JSON.parse(fields.Days) : fields.Days;
+    const daysValue = fields[daysField] || fields.Days || fields.days || fields.DaysJson || fields.daysJson;
+    if (daysValue) {
+      days = typeof daysValue === 'string' ? JSON.parse(daysValue) : daysValue;
     }
   } catch (e) {
-    console.error('Days parse hatası:', e);
+    console.error('Days parse hatası:', e, { daysField, value: fields[daysField] });
     days = [];
   }
 
+  // Alan değerlerini al
+  const title = fields[titleField] || fields.Title || fields.title || `Hafta ${item.id}`;
+  const startDate = fields[startDateField] || fields.StartDate || fields.startDate || fields.StartDate0 || '';
+  const endDate = fields[endDateField] || fields.EndDate || fields.endDate || fields.EndDate0 || '';
+  const statusValue = fields[statusField] || fields.Status || fields.status;
+  const status = (statusValue === 'published' || statusValue === 'draft') 
+                  ? statusValue : 'draft';
+
   return {
     id: item.id,
-    title: fields.Title || `Hafta ${item.id}`,
-    startDate: fields.StartDate || '',
-    endDate: fields.EndDate || '',
-    status: (fields.Status === 'published' || fields.Status === 'draft') ? fields.Status : 'draft',
+    title,
+    startDate,
+    endDate,
+    status: status as 'published' | 'draft',
     days: days || []
   };
 };
 
 // Week tipini SharePoint List Item'a dönüştür
-const mapWeekToListItem = (week: Week): any => {
-  return {
-    fields: {
-      Title: week.title,
-      StartDate: week.startDate,
-      EndDate: week.endDate,
-      Status: week.status,
-      Days: JSON.stringify(week.days)
-    }
+const mapWeekToListItem = async (week: Week): Promise<any> => {
+  // Liste şemasını al
+  const schema = await getListSchema();
+  
+  // Alan isimlerini eşleştir
+  const titleField = schema ? getFieldName('Title', schema) : 'Title';
+  const startDateField = schema ? getFieldName('StartDate', schema) : 'StartDate';
+  const endDateField = schema ? getFieldName('EndDate', schema) : 'EndDate';
+  const statusField = schema ? getFieldName('Status', schema) : 'Status';
+  const daysField = schema ? getFieldName('Days', schema) : 'Days';
+  
+  const fields: any = {
+    [titleField]: week.title,
+    [startDateField]: week.startDate,
+    [endDateField]: week.endDate,
+    [statusField]: week.status,
+    [daysField]: JSON.stringify(week.days)
   };
+  
+  console.log('Saving week with fields:', {
+    fieldMappings: {
+      title: titleField,
+      startDate: startDateField,
+      endDate: endDateField,
+      status: statusField,
+      days: daysField
+    },
+    values: fields
+  });
+  
+  return { fields };
 };
 
 // Ana Fonksiyonlar
@@ -177,6 +255,7 @@ export const getWeeks = async (): Promise<Week[]> => {
   try {
     const listId = await getListId();
     const siteId = await getSiteId();
+    const schema = await getListSchema();
     
     const response = await graphRequest(
       `/sites/${siteId}/lists/${listId}/items?$expand=fields&$orderby=fields/StartDate desc`
@@ -186,7 +265,7 @@ export const getWeeks = async (): Promise<Week[]> => {
       return [];
     }
 
-    return response.value.map(mapListItemToWeek);
+    return response.value.map((item: any) => mapListItemToWeek(item, schema));
   } catch (error) {
     console.error('Haftalar getirilemedi:', error);
     throw error;
@@ -197,26 +276,71 @@ export const getWeekById = async (id: string): Promise<Week | undefined> => {
   try {
     const listId = await getListId();
     const siteId = await getSiteId();
+    const schema = await getListSchema();
     
     const response = await graphRequest(
       `/sites/${siteId}/lists/${listId}/items/${id}?$expand=fields`
     );
 
-    return mapListItemToWeek(response);
+    return mapListItemToWeek(response, schema);
   } catch (error) {
     console.error('Hafta getirilemedi:', error);
     return undefined;
   }
 };
 
+// Liste şemasını al ve alan isimlerini öğren
+let cachedListSchema: any = null;
+const getListSchema = async (): Promise<any> => {
+  if (cachedListSchema) {
+    return cachedListSchema;
+  }
+  
+  try {
+    const listId = await getListId();
+    const siteId = await getSiteId();
+    const list = await graphRequest(`/sites/${siteId}/lists/${listId}?$expand=columns($select=name,displayName,readOnly,required)`);
+    cachedListSchema = list;
+    return list;
+  } catch (error) {
+    console.error('Liste şeması alınamadı:', error);
+    return null;
+  }
+};
+
+// Alan isimlerini eşleştir (display name'den internal name'e)
+const getFieldName = (displayName: string, schema: any): string => {
+  if (!schema?.columns) return displayName;
+  
+  const column = schema.columns.find((c: any) => 
+    c.displayName === displayName || c.name === displayName
+  );
+  
+  return column?.name || displayName;
+};
+
 export const saveWeek = async (week: Week): Promise<Week> => {
   try {
     const listId = await getListId();
     const siteId = await getSiteId();
-    const listItem = mapWeekToListItem(week);
+    
+    // Liste şemasını al ve alan isimlerini kontrol et
+    const listSchema = await getListSchema();
+    if (listSchema?.columns) {
+      console.log('Liste alanları:', listSchema.columns.map((c: any) => ({ 
+        name: c.name, 
+        displayName: c.displayName,
+        readOnly: c.readOnly,
+        required: c.required
+      })));
+    }
+    
+    const listItem = await mapWeekToListItem(week);
+    console.log('Saving week:', { weekId: week.id, listItem });
 
     if (week.id && week.id.startsWith('week-')) {
       // Yeni hafta - POST
+      console.log('Yeni hafta oluşturuluyor...');
       const response = await graphRequest(
         `/sites/${siteId}/lists/${listId}/items`,
         {
@@ -224,6 +348,7 @@ export const saveWeek = async (week: Week): Promise<Week> => {
           body: JSON.stringify(listItem)
         }
       );
+      console.log('Hafta oluşturuldu:', response);
       // SharePoint'ten dönen ID ile güncelle
       return {
         ...week,
@@ -231,6 +356,7 @@ export const saveWeek = async (week: Week): Promise<Week> => {
       };
     } else {
       // Mevcut hafta - PATCH
+      console.log('Mevcut hafta güncelleniyor...', week.id);
       await graphRequest(
         `/sites/${siteId}/lists/${listId}/items/${week.id}`,
         {
@@ -240,8 +366,10 @@ export const saveWeek = async (week: Week): Promise<Week> => {
       );
       return week;
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Hafta kaydedilemedi:', error);
+    const errorMessage = error?.message || 'Bilinmeyen hata';
+    alert(`Hafta kaydedilemedi: ${errorMessage}\n\nLütfen konsolu kontrol edin.`);
     throw error;
   }
 };

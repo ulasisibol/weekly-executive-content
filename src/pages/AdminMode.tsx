@@ -144,9 +144,16 @@ export default function AdminMode() {
       setTimeout(() => {
         setNotification(null);
       }, 3000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Hafta oluşturma hatası:', error);
-      alert('Hafta oluşturulurken bir hata oluştu.');
+      const errorMessage = error?.message || 'Bilinmeyen hata';
+      setNotification({
+        message: `Hafta oluşturulamadı: ${errorMessage}. Lütfen konsolu kontrol edin.`,
+        type: 'info'
+      });
+      setTimeout(() => {
+        setNotification(null);
+      }, 5000);
     }
   };
 
