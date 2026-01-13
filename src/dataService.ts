@@ -143,12 +143,74 @@ const getDriveId = async (): Promise<string> => {
 };
 
 // Yardımcı Fonksiyonlar
-const getDateString = (date: Date): string => {
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+// Güvenli tarih parse fonksiyonu
+const parseDate = (dateInput: string | Date | undefined | null): Date | null => {
+  if (!dateInput) {
+    console.error('parseDate: Geçersiz tarih girişi (boş/undefined/null):', dateInput);
+    return null;
+  }
+
+  let date: Date;
+  
+  if (dateInput instanceof Date) {
+    date = dateInput;
+  } else if (typeof dateInput === 'string') {
+    // ISO formatını dene (YYYY-MM-DD veya YYYY-MM-DDTHH:mm:ss)
+    if (dateInput.includes('T')) {
+      date = new Date(dateInput);
+    } else {
+      // Sadece tarih varsa UTC olarak parse et
+      date = new Date(dateInput + 'T00:00:00Z');
+    }
+  } else {
+    console.error('parseDate: Geçersiz tarih tipi:', typeof dateInput, dateInput);
+    return null;
+  }
+
+  // Tarih geçerli mi kontrol et
+  if (isNaN(date.getTime())) {
+    console.error('parseDate: Geçersiz tarih değeri:', dateInput, '->', date);
+    return null;
+  }
+
+  return date;
+};
+
+// Güvenli tarih string'e çevirme
+const getDateString = (date: Date | null): string => {
+  if (!date) {
+    console.error('getDateString: Geçersiz tarih objesi (null)');
+    throw new Error('Geçersiz tarih objesi: null');
+  }
+
+  // Tarih geçerli mi kontrol et
+  if (isNaN(date.getTime())) {
+    console.error('getDateString: Geçersiz tarih değeri:', date);
+    throw new Error(`Geçersiz tarih değeri: ${date}`);
+  }
+
+  try {
+    const adjustedDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    const isoString = adjustedDate.toISOString();
+    return isoString.split('T')[0];
+  } catch (error) {
+    console.error('getDateString: toISOString hatası:', error, 'Tarih:', date);
+    throw new Error(`Tarih dönüşümü başarısız: ${error}`);
+  }
 };
 
 const getDayOfWeek = (dateString: string): string => {
-  const date = new Date(dateString + 'T00:00:00Z');
+  if (!dateString) {
+    console.error('getDayOfWeek: Boş tarih string');
+    return 'Bilinmeyen';
+  }
+
+  const date = parseDate(dateString);
+  if (!date) {
+    console.error('getDayOfWeek: Geçersiz tarih string:', dateString);
+    return 'Bilinmeyen';
+  }
+
   return dayNames[date.getUTCDay()];
 };
 
@@ -344,9 +406,11 @@ export const getWeeks = async (): Promise<Week[]> => {
     // Eğer StartDate ile sıralama yapamadıysak, manuel sırala
     if (!hasStartDate) {
       weeks.sort((a, b) => {
-        const dateA = a.startDate ? new Date(a.startDate).getTime() : 0;
-        const dateB = b.startDate ? new Date(b.startDate).getTime() : 0;
-        return dateB - dateA;
+        const dateA = parseDate(a.startDate);
+        const dateB = parseDate(b.startDate);
+        const timeA = dateA ? dateA.getTime() : 0;
+        const timeB = dateB ? dateB.getTime() : 0;
+        return timeB - timeA;
       });
     }
     
@@ -597,22 +661,71 @@ export const removeWeek = async (weekId: string): Promise<boolean> => {
 export const addDayToWeek = async (weekId: string, afterDateString: string): Promise<Day | null> => {
   try {
     const week = await getWeekById(weekId);
-    if (!week) return null;
+    if (!week) {
+      console.error('addDayToWeek: Hafta bulunamadı:', weekId);
+      return null;
+    }
 
-    let nextDate: Date;
+    // Hafta tarihlerini kontrol et
+    const weekStartDate = parseDate(week.startDate);
+    const weekEndDate = parseDate(week.endDate);
+
+    if (!weekStartDate || !weekEndDate) {
+      console.error('addDayToWeek: Geçersiz hafta tarihleri:', {
+        startDate: week.startDate,
+        endDate: week.endDate,
+        weekId
+      });
+      throw new Error('Hafta tarihleri geçersiz');
+    }
+
+    let nextDate: Date | null = null;
     
     if (week.days.length === 0) {
-      nextDate = new Date(week.startDate + 'T00:00:00Z');
+      // İlk gün - haftanın başlangıç tarihini kullan
+      nextDate = new Date(weekStartDate);
+      console.log('addDayToWeek: İlk gün ekleniyor, başlangıç tarihi:', week.startDate);
     } else {
-      const existingDates = week.days.map(d => new Date(d.date + 'T00:00:00Z').getTime()).sort((a, b) => b - a);
-      const lastDate = new Date(existingDates[0]);
-      nextDate = new Date(lastDate);
-      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+      // Mevcut günlerin tarihlerini al ve en son tarihi bul
+      const validDates = week.days
+        .map(d => {
+          const parsed = parseDate(d.date);
+          return parsed ? parsed.getTime() : null;
+        })
+        .filter((time): time is number => time !== null)
+        .sort((a, b) => b - a);
+
+      if (validDates.length === 0) {
+        console.error('addDayToWeek: Geçerli tarih bulunamadı mevcut günlerde');
+        nextDate = new Date(weekStartDate);
+      } else {
+        const lastDate = new Date(validDates[0]);
+        nextDate = new Date(lastDate);
+        nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+        console.log('addDayToWeek: Son tarihten sonraki gün:', nextDate.toISOString());
+      }
+    }
+
+    if (!nextDate || isNaN(nextDate.getTime())) {
+      console.error('addDayToWeek: Geçersiz nextDate oluşturuldu');
+      throw new Error('Geçersiz tarih oluşturuldu');
     }
 
     const newDateString = getDateString(nextDate);
+    console.log('addDayToWeek: Yeni tarih string:', newDateString);
 
-    if (new Date(newDateString + 'T00:00:00Z') > new Date(week.endDate + 'T00:00:00Z')) {
+    // Hafta bitiş tarihini kontrol et
+    const newDateParsed = parseDate(newDateString);
+    if (!newDateParsed) {
+      console.error('addDayToWeek: Yeni tarih parse edilemedi:', newDateString);
+      throw new Error('Yeni tarih parse edilemedi');
+    }
+
+    if (newDateParsed > weekEndDate) {
+      console.warn('addDayToWeek: Yeni tarih hafta bitiş tarihinden sonra:', {
+        newDate: newDateString,
+        endDate: week.endDate
+      });
       return null;
     }
 
@@ -623,7 +736,12 @@ export const addDayToWeek = async (weekId: string, afterDateString: string): Pro
       videos: []
     };
 
-    const insertIndex = week.days.findIndex(d => new Date(d.date + 'T00:00:00Z').getTime() > new Date(newDateString + 'T00:00:00Z').getTime());
+    // Tarih sırasına göre ekle
+    const insertIndex = week.days.findIndex(d => {
+      const dayDate = parseDate(d.date);
+      return dayDate && dayDate.getTime() > newDateParsed.getTime();
+    });
+
     if (insertIndex === -1) {
       week.days.push(newDay);
     } else {
@@ -631,9 +749,13 @@ export const addDayToWeek = async (weekId: string, afterDateString: string): Pro
     }
 
     await saveWeek(week);
+    console.log('addDayToWeek: Gün başarıyla eklendi:', newDay);
     return newDay;
   } catch (error) {
     console.error('Gün eklenemedi:', error);
+    if (error instanceof Error) {
+      console.error('Hata detayı:', error.message, error.stack);
+    }
     return null;
   }
 };
@@ -657,29 +779,71 @@ export const removeDayFromWeek = async (weekId: string, dayId: string): Promise<
 
 export const updateDayDate = async (weekId: string, dayId: string, newDateString: string): Promise<boolean> => {
   try {
-    const week = await getWeekById(weekId);
-    if (!week) return false;
-
-    const day = week.days.find(d => d.id === dayId);
-    if (!day) return false;
-
-    const newDate = new Date(newDateString + 'T00:00:00Z');
-    const weekStart = new Date(week.startDate + 'T00:00:00Z');
-    const weekEnd = new Date(week.endDate + 'T00:00:00Z');
-
-    if (newDate < weekStart || newDate > weekEnd) {
+    if (!newDateString) {
+      console.error('updateDayDate: Boş tarih string');
       return false;
     }
 
-    day.date = newDateString;
-    day.dayOfWeek = getDayOfWeek(newDateString);
+    const week = await getWeekById(weekId);
+    if (!week) {
+      console.error('updateDayDate: Hafta bulunamadı:', weekId);
+      return false;
+    }
 
-    week.days.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const day = week.days.find(d => d.id === dayId);
+    if (!day) {
+      console.error('updateDayDate: Gün bulunamadı:', dayId);
+      return false;
+    }
+
+    // Tarihleri güvenli şekilde parse et
+    const newDate = parseDate(newDateString);
+    const weekStart = parseDate(week.startDate);
+    const weekEnd = parseDate(week.endDate);
+
+    if (!newDate) {
+      console.error('updateDayDate: Geçersiz yeni tarih:', newDateString);
+      return false;
+    }
+
+    if (!weekStart || !weekEnd) {
+      console.error('updateDayDate: Geçersiz hafta tarihleri:', {
+        startDate: week.startDate,
+        endDate: week.endDate
+      });
+      return false;
+    }
+
+    // Tarih hafta aralığında mı kontrol et
+    if (newDate < weekStart || newDate > weekEnd) {
+      console.warn('updateDayDate: Tarih hafta aralığı dışında:', {
+        newDate: newDateString,
+        weekStart: week.startDate,
+        weekEnd: week.endDate
+      });
+      return false;
+    }
+
+    // Tarih string'ini güvenli şekilde oluştur
+    const validatedDateString = getDateString(newDate);
+    day.date = validatedDateString;
+    day.dayOfWeek = getDayOfWeek(validatedDateString);
+
+    // Günleri tarihe göre sırala
+    week.days.sort((a, b) => {
+      const dateA = parseDate(a.date);
+      const dateB = parseDate(b.date);
+      if (!dateA || !dateB) return 0;
+      return dateA.getTime() - dateB.getTime();
+    });
 
     await saveWeek(week);
     return true;
   } catch (error) {
     console.error('Gün tarihi güncellenemedi:', error);
+    if (error instanceof Error) {
+      console.error('Hata detayı:', error.message, error.stack);
+    }
     return false;
   }
 };
@@ -789,19 +953,26 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
     let weekStart: Date;
     
     if (startDate) {
-      const inputDate = new Date(startDate + 'T00:00:00Z');
+      const inputDate = parseDate(startDate);
+      if (!inputDate) {
+        throw new Error(`Geçersiz başlangıç tarihi: ${startDate}`);
+      }
       weekStart = getWeekStartDate(inputDate);
     } else {
       const lastWeek = existingWeeks.length > 0 
         ? existingWeeks.reduce((latest, week) => {
-            const latestDate = new Date(latest.endDate + 'T00:00:00Z');
-            const weekDate = new Date(week.endDate + 'T00:00:00Z');
+            const latestDate = parseDate(latest.endDate);
+            const weekDate = parseDate(week.endDate);
+            if (!latestDate || !weekDate) return latest;
             return weekDate > latestDate ? week : latest;
           })
         : null;
       
       if (lastWeek) {
-        const lastEndDate = new Date(lastWeek.endDate + 'T00:00:00Z');
+        const lastEndDate = parseDate(lastWeek.endDate);
+        if (!lastEndDate) {
+          throw new Error(`Geçersiz son hafta bitiş tarihi: ${lastWeek.endDate}`);
+        }
         weekStart = new Date(lastEndDate);
         weekStart.setUTCDate(weekStart.getUTCDate() + 1);
         weekStart = getWeekStartDate(weekStart);
@@ -811,7 +982,15 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
       }
     }
 
+    if (!weekStart || isNaN(weekStart.getTime())) {
+      throw new Error('Geçersiz hafta başlangıç tarihi oluşturuldu');
+    }
+
     const weekEnd = getWeekEndDate(weekStart);
+    if (!weekEnd || isNaN(weekEnd.getTime())) {
+      throw new Error('Geçersiz hafta bitiş tarihi oluşturuldu');
+    }
+
     const startDateString = getDateString(weekStart);
     const endDateString = getDateString(weekEnd);
     
@@ -849,8 +1028,9 @@ export const ensureNextWeekExists = async (): Promise<Week | null> => {
     const existingWeeks = await getWeeks();
     const lastWeek = existingWeeks.length > 0 
       ? existingWeeks.reduce((latest, week) => {
-          const latestDate = new Date(latest.endDate + 'T00:00:00Z');
-          const weekDate = new Date(week.endDate + 'T00:00:00Z');
+          const latestDate = parseDate(latest.endDate);
+          const weekDate = parseDate(week.endDate);
+          if (!latestDate || !weekDate) return latest;
           return weekDate > latestDate ? week : latest;
         })
       : null;
@@ -859,7 +1039,12 @@ export const ensureNextWeekExists = async (): Promise<Week | null> => {
       return await createWeek();
     }
 
-    const lastEndDate = new Date(lastWeek.endDate + 'T00:00:00Z');
+    const lastEndDate = parseDate(lastWeek.endDate);
+    if (!lastEndDate) {
+      console.error('ensureNextWeekExists: Geçersiz son hafta bitiş tarihi:', lastWeek.endDate);
+      return null;
+    }
+
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     
@@ -871,6 +1056,11 @@ export const ensureNextWeekExists = async (): Promise<Week | null> => {
       nextMonday.setUTCDate(nextMonday.getUTCDate() + 1);
       nextMonday = getWeekStartDate(nextMonday);
       
+      if (!nextMonday || isNaN(nextMonday.getTime())) {
+        console.error('ensureNextWeekExists: Geçersiz nextMonday oluşturuldu');
+        return null;
+      }
+
       const nextMondayString = getDateString(nextMonday);
       const existingWeek = existingWeeks.find(w => w.startDate === nextMondayString);
       if (!existingWeek) {
@@ -881,6 +1071,9 @@ export const ensureNextWeekExists = async (): Promise<Week | null> => {
     return null;
   } catch (error) {
     console.error('Otomatik hafta oluşturma hatası:', error);
+    if (error instanceof Error) {
+      console.error('Hata detayı:', error.message, error.stack);
+    }
     return null;
   }
 };
