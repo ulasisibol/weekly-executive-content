@@ -16,10 +16,25 @@ export default function DayContent({ day, isAdmin = false, onRemoveVideo }: DayC
       <div className="mb-4">
         <h3 className="text-lg font-semibold text-gray-900">{day.dayOfWeek}</h3>
         <p className="text-sm text-gray-500">
-          {new Date(day.date + 'T00:00:00Z').toLocaleDateString('tr-TR', {
-            month: 'short',
-            day: 'numeric'
-          })}
+          {/* GÖREV 3: Defensive Coding - Tarih formatlarken güvenli kontrol */}
+          {(() => {
+            const dateStr = day?.date;
+            if (!dateStr || dateStr === '') {
+              return 'Tarih belirtilmedi';
+            }
+            try {
+              const date = new Date(dateStr + 'T00:00:00Z');
+              if (isNaN(date.getTime())) {
+                return 'Geçersiz tarih';
+              }
+              return date.toLocaleDateString('tr-TR', {
+                month: 'short',
+                day: 'numeric'
+              });
+            } catch (e) {
+              return 'Tarih hatası';
+            }
+          })()}
         </p>
       </div>
 
@@ -41,14 +56,25 @@ export default function DayContent({ day, isAdmin = false, onRemoveVideo }: DayC
                         aspectRatio: '9/16'
                       }}
                     >
-                      <video
-                        src={story.url}
-                        controls
-                        className="w-full h-full object-contain"
-                        preload="metadata"
-                      >
-                        Tarayıcınız video etiketini desteklemiyor.
-                      </video>
+                      {/* GÖREV 3: Defensive Coding - Video URL kontrolü */}
+                      {story?.url ? (
+                        <video
+                          src={story.url}
+                          controls
+                          className="w-full h-full object-contain"
+                          preload="metadata"
+                          onError={(e) => {
+                            console.error('Video yükleme hatası:', story.url);
+                            (e.target as HTMLVideoElement).style.display = 'none';
+                          }}
+                        >
+                          Tarayıcınız video etiketini desteklemiyor.
+                        </video>
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gray-800 text-white text-sm">
+                          Video URL bulunamadı
+                        </div>
+                      )}
                     </div>
                     {isAdmin && onRemoveVideo && (
                       <button
@@ -78,14 +104,25 @@ export default function DayContent({ day, isAdmin = false, onRemoveVideo }: DayC
                         className="relative bg-gray-900 rounded-lg overflow-hidden"
                         style={{ aspectRatio: '4/5' }}
                       >
-                        <video
-                          src={post.url}
-                          controls
-                          className="w-full h-full object-cover"
-                          preload="metadata"
-                        >
-                          Tarayıcınız video etiketini desteklemiyor.
-                        </video>
+                        {/* GÖREV 3: Defensive Coding - Video URL kontrolü */}
+                        {post?.url ? (
+                          <video
+                            src={post.url}
+                            controls
+                            className="w-full h-full object-cover"
+                            preload="metadata"
+                            onError={(e) => {
+                              console.error('Video yükleme hatası:', post.url);
+                              (e.target as HTMLVideoElement).style.display = 'none';
+                            }}
+                          >
+                            Tarayıcınız video etiketini desteklemiyor.
+                          </video>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-gray-800 text-white text-sm">
+                            Video URL bulunamadı
+                          </div>
+                        )}
                         {isAdmin && onRemoveVideo && (
                           <button
                             onClick={() => onRemoveVideo(post.id)}
@@ -100,7 +137,8 @@ export default function DayContent({ day, isAdmin = false, onRemoveVideo }: DayC
                           Gönderi Açıklaması
                         </label>
                         <div className="bg-gray-50 rounded-lg p-3 min-h-[100px]">
-                          {post.description ? (
+                          {/* GÖREV 3: Defensive Coding - Optional chaining ve null coalescing */}
+                          {post?.description?.trim() ? (
                             <p className="text-sm text-gray-700 whitespace-pre-wrap">{post.description}</p>
                           ) : (
                             <p className="text-sm text-gray-400 italic">Açıklama eklenmedi</p>

@@ -60,10 +60,27 @@ export default function AdminEdit({ week, onSave, onWeekDeleted }: AdminEditProp
 
   const handleChangeDayDate = async (dayId: string, newDateString: string) => {
     try {
+      // GÖREV 3: Defensive Coding - Tarih validasyonu
+      if (!newDateString || newDateString.trim() === '') {
+        alert('Geçerli bir tarih seçin');
+        return;
+      }
+      
+      const testDate = new Date(newDateString + 'T00:00:00Z');
+      if (isNaN(testDate.getTime())) {
+        alert('Geçersiz tarih formatı');
+        return;
+      }
+      
       const success = await updateDayDate(currentWeek.id, dayId, newDateString);
       if (success) {
         const updated = { ...currentWeek };
-        updated.days.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        // Defensive Coding: Tarih sıralaması
+        updated.days.sort((a, b) => {
+          const dateA = a?.date ? new Date(a.date + 'T00:00:00Z').getTime() : 0;
+          const dateB = b?.date ? new Date(b.date + 'T00:00:00Z').getTime() : 0;
+          return dateA - dateB;
+        });
         setCurrentWeek(updated);
         onSave();
       }

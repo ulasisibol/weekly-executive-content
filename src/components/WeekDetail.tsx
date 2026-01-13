@@ -24,14 +24,34 @@ export default function WeekDetail({ week, isAdmin = false, onRemoveVideo }: Wee
               {week.status === 'published' ? 'Yayında' : 'Taslak'}
             </span>
             <span className="text-sm text-gray-500">
-              {new Date(week.startDate + 'T00:00:00Z').toLocaleDateString('tr-TR', {
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric'
-              })} - {new Date(week.endDate + 'T00:00:00Z').toLocaleDateString('tr-TR', {
-                day: 'numeric',
-                month: 'long'
-              })}
+              {/* GÖREV 3: Defensive Coding - Tarih formatlarken güvenli kontrol */}
+              {(() => {
+                const startDate = week?.startDate;
+                const endDate = week?.endDate;
+                
+                // Tarih geçerlilik kontrolü
+                const isValidDate = (dateStr: string | undefined): boolean => {
+                  if (!dateStr || dateStr === '') return false;
+                  const date = new Date(dateStr + 'T00:00:00Z');
+                  return !isNaN(date.getTime());
+                };
+                
+                const safeStartDate = isValidDate(startDate) 
+                  ? new Date(startDate! + 'T00:00:00Z')
+                  : new Date();
+                const safeEndDate = isValidDate(endDate)
+                  ? new Date(endDate! + 'T00:00:00Z')
+                  : new Date();
+                
+                return `${safeStartDate.toLocaleDateString('tr-TR', {
+                  day: 'numeric',
+                  month: 'long',
+                  year: 'numeric'
+                })} - ${safeEndDate.toLocaleDateString('tr-TR', {
+                  day: 'numeric',
+                  month: 'long'
+                })}`;
+              })()}
             </span>
           </div>
         </div>

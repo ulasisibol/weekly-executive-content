@@ -244,71 +244,123 @@ const getDayOfWeek = (dateString: string): string => {
 const mapListItemToWeek = (item: any, schema?: any): Week => {
   const fields = item.fields || {};
   
-  console.log('Mapping list item:', { 
-    id: item.id, 
-    fieldKeys: Object.keys(fields),
-    sampleFields: Object.keys(fields).slice(0, 15).reduce((acc: any, key) => {
+  // GÖREV 1: Debug Logları - SharePoint'ten gelen ham veriyi göster
+  console.log('🔍 SharePoint Raw Item Fields:', fields);
+  console.log('🔍 SharePoint Raw Item Keys:', Object.keys(fields || {}));
+  console.log('🔍 SharePoint Raw Item Values (ilk 20):', 
+    Object.keys(fields).slice(0, 20).reduce((acc: any, key) => {
       const value = fields[key];
       if (value !== null && value !== undefined) {
-        acc[key] = typeof value === 'string' ? value.substring(0, 50) : value;
+        acc[key] = typeof value === 'string' 
+          ? (value.length > 100 ? value.substring(0, 100) + '...' : value)
+          : value;
       }
       return acc;
     }, {})
-  });
+  );
   
-  // Schema varsa alan isimlerini eşleştir - Case-Insensitive ve OData prefix'li arama
+  // Tarih içeren tüm alanları bul (debug için)
+  const dateRelatedFields = Object.keys(fields).filter(k => {
+    const lower = k.toLowerCase();
+    return lower.includes('date') || 
+           lower.includes('tarih') || 
+           lower.includes('start') || 
+           lower.includes('end') ||
+           lower.includes('begin') ||
+           lower.includes('finish');
+  });
+  console.log('📅 Tarih ile ilgili alanlar:', dateRelatedFields.map(k => ({
+    key: k,
+    value: fields[k],
+    type: typeof fields[k]
+  })));
+  
+  // GÖREV 2: Akıllı Mapping Fonksiyonu - Tüm olası varyasyonları dener
   const findFieldValue = (displayName: string, alternativeNames: string[] = []): any => {
     const searchNames = [displayName, ...alternativeNames];
     const allSearchNames = new Set<string>();
     
     // Tüm olası varyasyonları oluştur
     for (const name of searchNames) {
+      // Temel varyasyonlar
       allSearchNames.add(name);
       allSearchNames.add(name.toLowerCase());
       allSearchNames.add(name.toUpperCase());
+      
       // OData prefix'li varyasyonlar
       allSearchNames.add(`OData__${name}`);
       allSearchNames.add(`OData__${name.replace(/\s/g, '_')}`);
+      allSearchNames.add(`OData__${name.replace(/\s/g, '_').toLowerCase()}`);
+      
       // Underscore ile boşluk değiştirme
       allSearchNames.add(name.replace(/\s/g, '_'));
       allSearchNames.add(name.replace(/\s/g, '_').toLowerCase());
+      
       // x0020 ile boşluk (SharePoint encoding)
       allSearchNames.add(name.replace(/\s/g, '_x0020_'));
       allSearchNames.add(name.replace(/\s/g, '_x0020_').toLowerCase());
+      
+      // x0031, x0032 gibi sayısal encoding'ler
+      allSearchNames.add(name.replace(/\s/g, '_x0031_'));
+      allSearchNames.add(name.replace(/\s/g, '_x0032_'));
+      
+      // Türkçe karakterler için
+      const turkishVariations = name
+        .replace(/ş/g, 's')
+        .replace(/Ş/g, 'S')
+        .replace(/ğ/g, 'g')
+        .replace(/Ğ/g, 'G')
+        .replace(/ü/g, 'u')
+        .replace(/Ü/g, 'U')
+        .replace(/ö/g, 'o')
+        .replace(/Ö/g, 'O')
+        .replace(/ç/g, 'c')
+        .replace(/Ç/g, 'C')
+        .replace(/ı/g, 'i')
+        .replace(/İ/g, 'I');
+      allSearchNames.add(turkishVariations);
+      allSearchNames.add(turkishVariations.toLowerCase());
     }
     
-    // Önce schema'dan alan ismini bul (case-insensitive)
+    // Önce schema'dan alan ismini bul (case-insensitive ve partial match)
     let fieldName: string | null = null;
     if (schema?.columns) {
       for (const searchName of allSearchNames) {
+        const searchLower = searchName.toLowerCase();
         const col = schema.columns.find((c: any) => {
           const colName = (c.name || '').toLowerCase();
           const colDisplayName = (c.displayName || '').toLowerCase();
-          const searchLower = searchName.toLowerCase();
           return colName === searchLower || 
                  colDisplayName === searchLower ||
                  colName.includes(searchLower) ||
-                 colDisplayName.includes(searchLower);
+                 colDisplayName.includes(searchLower) ||
+                 searchLower.includes(colName) ||
+                 searchLower.includes(colDisplayName);
         });
         if (col) {
           fieldName = col.name;
+          console.log(`✅ Schema'dan bulundu: ${displayName} -> ${col.name} (${col.displayName})`);
           break;
         }
       }
     }
     
-    // Schema'dan bulamadıysak, direkt fields içinde ara (case-insensitive)
+    // Schema'dan bulamadıysak, direkt fields içinde ara (case-insensitive ve partial match)
     if (!fieldName) {
       const fieldKeys = Object.keys(fields);
       for (const searchName of allSearchNames) {
-        const foundKey = fieldKeys.find(key => 
-          key.toLowerCase() === searchName.toLowerCase() ||
-          key.toLowerCase().includes(searchName.toLowerCase())
-        );
+        const searchLower = searchName.toLowerCase();
+        const foundKey = fieldKeys.find(key => {
+          const keyLower = key.toLowerCase();
+          return keyLower === searchLower ||
+                 keyLower.includes(searchLower) ||
+                 searchLower.includes(keyLower);
+        });
         if (foundKey) {
           const value = fields[foundKey];
           if (value !== undefined && value !== null && value !== '') {
             fieldName = foundKey;
+            console.log(`✅ Fields'den bulundu: ${displayName} -> ${foundKey}`);
             break;
           }
         }
@@ -319,11 +371,13 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
       const value = fields[fieldName];
       // Boş string, null, undefined kontrolü
       if (value === '' || value === null || value === undefined) {
+        console.warn(`⚠️ Alan bulundu ama değer boş: ${fieldName}`);
         return null;
       }
       return value;
     }
     
+    console.warn(`❌ Alan bulunamadı: ${displayName} (${alternativeNames.join(', ')})`);
     return null;
   };
   
@@ -342,7 +396,7 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
   // Alan değerlerini al
   const title = findFieldValue('Title', ['Başlık', 'title']) || `Hafta ${item.id}`;
   
-  // Tarih alanlarını al ve formatla - Kapsamlı arama
+  // GÖREV 2: Akıllı Tarih Mapping - Tüm olası varyasyonları dene
   let startDate = findFieldValue('StartDate', [
     'Start_x0020_Date', 
     'Start Date', 
@@ -351,7 +405,15 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
     'OData__StartDate',
     'OData__Start_x0020_Date',
     'Başlangıç Tarihi',
-    'BaslangicTarihi'
+    'BaslangicTarihi',
+    'Baslangic',
+    'HaftaBaslangic',
+    'WeekStart',
+    'Week_x0020_Start',
+    'field_1',
+    'field1',
+    'Column1',
+    'Sütun1'
   ]);
   
   let endDate = findFieldValue('EndDate', [
@@ -362,10 +424,22 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
     'OData__EndDate',
     'OData__End_x0020_Date',
     'Bitiş Tarihi',
-    'BitisTarihi'
+    'BitisTarihi',
+    'Bitis',
+    'HaftaBitis',
+    'WeekEnd',
+    'Week_x0020_End',
+    'field_2',
+    'field2',
+    'Column2',
+    'Sütun2'
   ]);
   
-  // Eğer tarih alanları bulunamadıysa, tüm tarih içeren alanları logla
+  // Eğer tarih alanları bulunamadıysa, varsayılan değer ata (bugün)
+  const today = new Date();
+  const defaultStartDate = getDateString(getWeekStartDate(today));
+  const defaultEndDate = getDateString(getWeekEndDate(getWeekStartDate(today)));
+  
   if (!startDate || startDate === '') {
     const dateFields = Object.keys(fields).filter(k => {
       const lower = k.toLowerCase();
@@ -375,13 +449,13 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
              lower.includes('begin') ||
              lower.includes('from');
     });
-    console.warn('StartDate alanı bulunamadı veya boş:', {
+    console.warn('⚠️ StartDate alanı bulunamadı veya boş, varsayılan tarih kullanılıyor:', {
       itemId: item.id,
-      title: fields.Title || fields.title || 'N/A',
       availableDateFields: dateFields,
+      defaultStartDate,
       allFields: Object.keys(fields)
     });
-    startDate = '';
+    startDate = defaultStartDate; // Varsayılan: Bugünden itibaren hafta başlangıcı
   } else {
     // Tarih string'ini normalize et
     if (typeof startDate === 'string') {
@@ -389,14 +463,14 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
       if (parsed) {
         startDate = getDateString(parsed);
       } else {
-        console.warn('StartDate parse edilemedi:', startDate, 'Tip:', typeof startDate);
-        startDate = '';
+        console.warn('⚠️ StartDate parse edilemedi, varsayılan kullanılıyor:', startDate);
+        startDate = defaultStartDate;
       }
     } else if (startDate instanceof Date) {
       startDate = getDateString(startDate);
     } else {
-      console.warn('StartDate beklenmeyen tip:', typeof startDate, startDate);
-      startDate = '';
+      console.warn('⚠️ StartDate beklenmeyen tip, varsayılan kullanılıyor:', typeof startDate);
+      startDate = defaultStartDate;
     }
   }
   
@@ -409,13 +483,14 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
              lower.includes('finish') ||
              lower.includes('to');
     });
-    console.warn('EndDate alanı bulunamadı veya boş:', {
+    console.warn('⚠️ EndDate alanı bulunamadı veya boş, varsayılan tarih kullanılıyor:', {
       itemId: item.id,
       title: fields.Title || fields.title || 'N/A',
       availableDateFields: dateFields,
+      defaultEndDate,
       allFields: Object.keys(fields)
     });
-    endDate = '';
+    endDate = defaultEndDate; // Varsayılan: Bugünden itibaren hafta bitişi
   } else {
     // Tarih string'ini normalize et
     if (typeof endDate === 'string') {
@@ -423,14 +498,14 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
       if (parsed) {
         endDate = getDateString(parsed);
       } else {
-        console.warn('EndDate parse edilemedi:', endDate, 'Tip:', typeof endDate);
-        endDate = '';
+        console.warn('⚠️ EndDate parse edilemedi, varsayılan kullanılıyor:', endDate);
+        endDate = defaultEndDate;
       }
     } else if (endDate instanceof Date) {
       endDate = getDateString(endDate);
     } else {
-      console.warn('EndDate beklenmeyen tip:', typeof endDate, endDate);
-      endDate = '';
+      console.warn('⚠️ EndDate beklenmeyen tip, varsayılan kullanılıyor:', typeof endDate);
+      endDate = defaultEndDate;
     }
   }
   
