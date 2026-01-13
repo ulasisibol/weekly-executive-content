@@ -1,7 +1,130 @@
+import { Providers } from '@microsoft/mgt-element';
 import { Week, Day, Video } from './types';
+
+// SharePoint Site ve Liste Bilgileri
+const SHAREPOINT_SITE_URL = 'https://pakyurektarim1.sharepoint.com/sites/mezzeMarinMarkaletiimi';
+const LIST_NAME = 'HaftalikIcerik';
+const DOCUMENT_LIBRARY_NAME = 'Documents'; // Shared Documents
+
+// Cache için
+let cachedSiteId: string | null = null;
+let cachedListId: string | null = null;
+let cachedDriveId: string | null = null;
 
 const dayNames = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
 
+// Graph API Helper Fonksiyonlar
+const getAccessToken = async (): Promise<string> => {
+  const provider = Providers.globalProvider;
+  if (!provider) {
+    throw new Error('Authentication provider bulunamadı');
+  }
+
+  const account = await provider.getAccount();
+  if (!account) {
+    throw new Error('Kullanıcı giriş yapmamış');
+  }
+
+  const token = await provider.getAccessToken({
+    scopes: ['Sites.ReadWrite.All', 'Files.ReadWrite.All', 'User.Read']
+  });
+
+  if (!token) {
+    throw new Error('Access token alınamadı');
+  }
+
+  return token;
+};
+
+const graphRequest = async (endpoint: string, options: RequestInit = {}): Promise<any> => {
+  const token = await getAccessToken();
+  
+  const response = await fetch(`https://graph.microsoft.com/v1.0${endpoint}`, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Graph API Hatası:', response.status, errorText);
+    throw new Error(`Graph API hatası: ${response.status} - ${errorText}`);
+  }
+
+  return response.json();
+};
+
+// Site ID'yi bul (cache'lenmiş değilse)
+const getSiteId = async (): Promise<string> => {
+  if (cachedSiteId) {
+    return cachedSiteId;
+  }
+
+  try {
+    // Site URL'sinden hostname ve site path'i çıkar
+    const url = new URL(SHAREPOINT_SITE_URL);
+    const hostname = url.hostname;
+    const sitePath = url.pathname;
+
+    // Graph API ile site bilgisini al
+    const endpoint = `/sites/${hostname}:${sitePath}`;
+    const siteData = await graphRequest(endpoint);
+    cachedSiteId = siteData.id;
+    return cachedSiteId;
+  } catch (error) {
+    console.error('Site ID bulunamadı:', error);
+    throw error;
+  }
+};
+
+// List ID'yi bul (cache'lenmiş değilse)
+const getListId = async (): Promise<string> => {
+  if (cachedListId) {
+    return cachedListId;
+  }
+
+  try {
+    const siteId = await getSiteId();
+    const lists = await graphRequest(`/sites/${siteId}/lists?$filter=displayName eq '${LIST_NAME}'`);
+    
+    if (!lists.value || lists.value.length === 0) {
+      throw new Error(`Liste bulunamadı: ${LIST_NAME}`);
+    }
+
+    cachedListId = lists.value[0].id;
+    return cachedListId;
+  } catch (error) {
+    console.error('List ID bulunamadı:', error);
+    throw error;
+  }
+};
+
+// Drive ID'yi bul (Documents kütüphanesi için)
+const getDriveId = async (): Promise<string> => {
+  if (cachedDriveId) {
+    return cachedDriveId;
+  }
+
+  try {
+    const siteId = await getSiteId();
+    const drives = await graphRequest(`/sites/${siteId}/drives?$filter=name eq '${DOCUMENT_LIBRARY_NAME}'`);
+    
+    if (!drives.value || drives.value.length === 0) {
+      throw new Error(`Drive bulunamadı: ${DOCUMENT_LIBRARY_NAME}`);
+    }
+
+    cachedDriveId = drives.value[0].id;
+    return cachedDriveId;
+  } catch (error) {
+    console.error('Drive ID bulunamadı:', error);
+    throw error;
+  }
+};
+
+// Yardımcı Fonksiyonlar
 const getDateString = (date: Date): string => {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().split('T')[0];
 };
@@ -11,285 +134,315 @@ const getDayOfWeek = (dateString: string): string => {
   return dayNames[date.getUTCDay()];
 };
 
-let mockWeeks: Week[] = [
-  {
-    id: '1',
-    title: '1. Hafta - 12-18 Ocak',
-    startDate: '2026-01-12',
-    endDate: '2026-01-18',
-    status: 'published',
-    days: [
-      {
-        id: 'd1-1',
-        date: '2026-01-12',
-        dayOfWeek: 'Pazartesi',
-        videos: [
-          {
-            id: 'v1-1',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-            type: 'story'
-          },
-          {
-            id: 'v1-2',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-            type: 'post'
-          }
-        ]
-      },
-      {
-        id: 'd1-2',
-        date: '2026-01-13',
-        dayOfWeek: 'Salı',
-        videos: [
-          {
-            id: 'v1-3',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
-            type: 'story'
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: '2',
-    title: '2. Hafta - 19-25 Ocak',
-    startDate: '2026-01-19',
-    endDate: '2026-01-25',
-    status: 'published',
-    days: [
-      {
-        id: 'd2-1',
-        date: '2026-01-19',
-        dayOfWeek: 'Pazartesi',
-        videos: [
-          {
-            id: 'v2-1',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
-            type: 'story'
-          },
-          {
-            id: 'v2-2',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
-            type: 'post'
-          }
-        ]
-      }
-    ]
-  },
-  {
-    id: '3',
-    title: '3. Hafta - 26 Ocak - 1 Şubat',
-    startDate: '2026-01-26',
-    endDate: '2026-02-01',
-    status: 'published',
-    days: [
-      {
-        id: 'd3-1',
-        date: '2026-01-26',
-        dayOfWeek: 'Pazartesi',
-        videos: [
-          {
-            id: 'v3-1',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-            type: 'story'
-          },
-          {
-            id: 'v3-2',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-            type: 'story'
-          },
-          {
-            id: 'v3-3',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4',
-            type: 'post',
-            description: 'Bu haftanın ilk gönderisi! Yeni içeriklerimizle karşınızdayız.'
-          }
-        ]
-      }
-    ]
-  }
-];
-
-export const getWeeks = (): Week[] => {
-  // Otomatik olarak bir sonraki haftayı oluştur (sadece gerektiğinde)
-  // ensureNextWeekExists() sadece otomatik oluşturma için, manuel oluşturma için değil
-  // ensureNextWeekExists();
+// SharePoint List Item'ı Week tipine dönüştür
+const mapListItemToWeek = (item: any): Week => {
+  const fields = item.fields || {};
   
-  return [...mockWeeks].sort((a, b) =>
-    new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
-  );
-};
-
-export const getWeekById = (id: string): Week | undefined => {
-  return mockWeeks.find(week => week.id === id);
-};
-
-export const saveWeek = (week: Week): void => {
-  const index = mockWeeks.findIndex(w => w.id === week.id);
-  if (index !== -1) {
-    mockWeeks[index] = week;
-  } else {
-    mockWeeks.push(week);
-  }
-};
-
-export const removeWeek = (weekId: string): boolean => {
-  const index = mockWeeks.findIndex(w => w.id === weekId);
-  if (index === -1) return false;
-  
-  mockWeeks.splice(index, 1);
-  return true;
-};
-
-export const addDayToWeek = (weekId: string, afterDateString: string): Day | null => {
-  const week = mockWeeks.find(w => w.id === weekId);
-  if (!week) return null;
-
-  let nextDate: Date;
-  
-  if (week.days.length === 0) {
-    // Hafta boşsa, haftanın başlangıç tarihini kullan
-    nextDate = new Date(week.startDate + 'T00:00:00Z');
-  } else {
-    // Mevcut günlerin tarihlerini al ve en son tarihi bul
-    const existingDates = week.days.map(d => new Date(d.date + 'T00:00:00Z').getTime()).sort((a, b) => b - a);
-    const lastDate = new Date(existingDates[0]);
-    
-    // Son tarihten 1 gün sonrasını ekle
-    nextDate = new Date(lastDate);
-    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+  // JSON alanlarını parse et
+  let days: Day[] = [];
+  try {
+    if (fields.Days) {
+      days = typeof fields.Days === 'string' ? JSON.parse(fields.Days) : fields.Days;
+    }
+  } catch (e) {
+    console.error('Days parse hatası:', e);
+    days = [];
   }
 
-  const newDateString = getDateString(nextDate);
-
-  // Hafta bitiş tarihini kontrol et
-  if (new Date(newDateString + 'T00:00:00Z') > new Date(week.endDate + 'T00:00:00Z')) {
-    return null;
-  }
-
-  const newDay: Day = {
-    id: `d${weekId}-${Date.now()}`,
-    date: newDateString,
-    dayOfWeek: getDayOfWeek(newDateString),
-    videos: []
+  return {
+    id: item.id,
+    title: fields.Title || `Hafta ${item.id}`,
+    startDate: fields.StartDate || '',
+    endDate: fields.EndDate || '',
+    status: (fields.Status === 'published' || fields.Status === 'draft') ? fields.Status : 'draft',
+    days: days || []
   };
+};
 
-  // Tarih sırasına göre ekle
-  const insertIndex = week.days.findIndex(d => new Date(d.date + 'T00:00:00Z').getTime() > new Date(newDateString + 'T00:00:00Z').getTime());
-  if (insertIndex === -1) {
-    week.days.push(newDay);
-  } else {
-    week.days.splice(insertIndex, 0, newDay);
+// Week tipini SharePoint List Item'a dönüştür
+const mapWeekToListItem = (week: Week): any => {
+  return {
+    fields: {
+      Title: week.title,
+      StartDate: week.startDate,
+      EndDate: week.endDate,
+      Status: week.status,
+      Days: JSON.stringify(week.days)
+    }
+  };
+};
+
+// Ana Fonksiyonlar
+export const getWeeks = async (): Promise<Week[]> => {
+  try {
+    const listId = await getListId();
+    const siteId = await getSiteId();
+    
+    const response = await graphRequest(
+      `/sites/${siteId}/lists/${listId}/items?$expand=fields&$orderby=fields/StartDate desc`
+    );
+
+    if (!response.value) {
+      return [];
+    }
+
+    return response.value.map(mapListItemToWeek);
+  } catch (error) {
+    console.error('Haftalar getirilemedi:', error);
+    throw error;
   }
-
-  return newDay;
 };
 
-export const removeDayFromWeek = (weekId: string, dayId: string): boolean => {
-  const week = mockWeeks.find(w => w.id === weekId);
-  if (!week) return false;
+export const getWeekById = async (id: string): Promise<Week | undefined> => {
+  try {
+    const listId = await getListId();
+    const siteId = await getSiteId();
+    
+    const response = await graphRequest(
+      `/sites/${siteId}/lists/${listId}/items/${id}?$expand=fields`
+    );
 
-  const index = week.days.findIndex(d => d.id === dayId);
-  if (index === -1) return false;
-
-  week.days.splice(index, 1);
-  return true;
+    return mapListItemToWeek(response);
+  } catch (error) {
+    console.error('Hafta getirilemedi:', error);
+    return undefined;
+  }
 };
 
-export const updateDayDate = (weekId: string, dayId: string, newDateString: string): boolean => {
-  const week = mockWeeks.find(w => w.id === weekId);
-  if (!week) return false;
+export const saveWeek = async (week: Week): Promise<Week> => {
+  try {
+    const listId = await getListId();
+    const siteId = await getSiteId();
+    const listItem = mapWeekToListItem(week);
 
-  const day = week.days.find(d => d.id === dayId);
-  if (!day) return false;
+    if (week.id && week.id.startsWith('week-')) {
+      // Yeni hafta - POST
+      const response = await graphRequest(
+        `/sites/${siteId}/lists/${listId}/items`,
+        {
+          method: 'POST',
+          body: JSON.stringify(listItem)
+        }
+      );
+      // SharePoint'ten dönen ID ile güncelle
+      return {
+        ...week,
+        id: response.id
+      };
+    } else {
+      // Mevcut hafta - PATCH
+      await graphRequest(
+        `/sites/${siteId}/lists/${listId}/items/${week.id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(listItem)
+        }
+      );
+      return week;
+    }
+  } catch (error) {
+    console.error('Hafta kaydedilemedi:', error);
+    throw error;
+  }
+};
 
-  const newDate = new Date(newDateString + 'T00:00:00Z');
-  const weekStart = new Date(week.startDate + 'T00:00:00Z');
-  const weekEnd = new Date(week.endDate + 'T00:00:00Z');
+export const removeWeek = async (weekId: string): Promise<boolean> => {
+  try {
+    const listId = await getListId();
+    const siteId = await getSiteId();
+    
+    await graphRequest(
+      `/sites/${siteId}/lists/${listId}/items/${weekId}`,
+      {
+        method: 'DELETE'
+      }
+    );
 
-  if (newDate < weekStart || newDate > weekEnd) {
+    return true;
+  } catch (error) {
+    console.error('Hafta silinemedi:', error);
     return false;
   }
-
-  day.date = newDateString;
-  day.dayOfWeek = getDayOfWeek(newDateString);
-
-  week.days.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-  return true;
 };
 
-export const addVideoToDay = (weekId: string, dayId: string, video: Omit<Video, 'id'>): Video | null => {
-  const week = mockWeeks.find(w => w.id === weekId);
-  if (!week) return null;
+export const addDayToWeek = async (weekId: string, afterDateString: string): Promise<Day | null> => {
+  try {
+    const week = await getWeekById(weekId);
+    if (!week) return null;
 
-  const day = week.days.find(d => d.id === dayId);
-  if (!day) return null;
+    let nextDate: Date;
+    
+    if (week.days.length === 0) {
+      nextDate = new Date(week.startDate + 'T00:00:00Z');
+    } else {
+      const existingDates = week.days.map(d => new Date(d.date + 'T00:00:00Z').getTime()).sort((a, b) => b - a);
+      const lastDate = new Date(existingDates[0]);
+      nextDate = new Date(lastDate);
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+    }
 
-  const newVideo: Video = {
-    ...video,
-    id: `v${Date.now()}`
-  };
+    const newDateString = getDateString(nextDate);
 
-  day.videos.push(newVideo);
-  return newVideo;
+    if (new Date(newDateString + 'T00:00:00Z') > new Date(week.endDate + 'T00:00:00Z')) {
+      return null;
+    }
+
+    const newDay: Day = {
+      id: `d${weekId}-${Date.now()}`,
+      date: newDateString,
+      dayOfWeek: getDayOfWeek(newDateString),
+      videos: []
+    };
+
+    const insertIndex = week.days.findIndex(d => new Date(d.date + 'T00:00:00Z').getTime() > new Date(newDateString + 'T00:00:00Z').getTime());
+    if (insertIndex === -1) {
+      week.days.push(newDay);
+    } else {
+      week.days.splice(insertIndex, 0, newDay);
+    }
+
+    await saveWeek(week);
+    return newDay;
+  } catch (error) {
+    console.error('Gün eklenemedi:', error);
+    return null;
+  }
 };
 
-export const removeVideoFromDay = (weekId: string, dayId: string, videoId: string): boolean => {
-  const week = mockWeeks.find(w => w.id === weekId);
-  if (!week) return false;
+export const removeDayFromWeek = async (weekId: string, dayId: string): Promise<boolean> => {
+  try {
+    const week = await getWeekById(weekId);
+    if (!week) return false;
 
-  const day = week.days.find(d => d.id === dayId);
-  if (!day) return false;
+    const index = week.days.findIndex(d => d.id === dayId);
+    if (index === -1) return false;
 
-  const index = day.videos.findIndex(v => v.id === videoId);
-  if (index === -1) return false;
-
-  day.videos.splice(index, 1);
-  return true;
+    week.days.splice(index, 1);
+    await saveWeek(week);
+    return true;
+  } catch (error) {
+    console.error('Gün silinemedi:', error);
+    return false;
+  }
 };
 
-export const updateVideoUrl = (weekId: string, dayId: string, videoId: string, newUrl: string): boolean => {
-  const week = mockWeeks.find(w => w.id === weekId);
-  if (!week) return false;
+export const updateDayDate = async (weekId: string, dayId: string, newDateString: string): Promise<boolean> => {
+  try {
+    const week = await getWeekById(weekId);
+    if (!week) return false;
 
-  const day = week.days.find(d => d.id === dayId);
-  if (!day) return false;
+    const day = week.days.find(d => d.id === dayId);
+    if (!day) return false;
 
-  const video = day.videos.find(v => v.id === videoId);
-  if (!video) return false;
+    const newDate = new Date(newDateString + 'T00:00:00Z');
+    const weekStart = new Date(week.startDate + 'T00:00:00Z');
+    const weekEnd = new Date(week.endDate + 'T00:00:00Z');
 
-  video.url = newUrl;
-  return true;
+    if (newDate < weekStart || newDate > weekEnd) {
+      return false;
+    }
+
+    day.date = newDateString;
+    day.dayOfWeek = getDayOfWeek(newDateString);
+
+    week.days.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    await saveWeek(week);
+    return true;
+  } catch (error) {
+    console.error('Gün tarihi güncellenemedi:', error);
+    return false;
+  }
 };
 
-export const updateVideoDescription = (weekId: string, dayId: string, videoId: string, description: string): boolean => {
-  const week = mockWeeks.find(w => w.id === weekId);
-  if (!week) return false;
+export const addVideoToDay = async (weekId: string, dayId: string, video: Omit<Video, 'id'>): Promise<Video | null> => {
+  try {
+    const week = await getWeekById(weekId);
+    if (!week) return null;
 
-  const day = week.days.find(d => d.id === dayId);
-  if (!day) return false;
+    const day = week.days.find(d => d.id === dayId);
+    if (!day) return null;
 
-  const video = day.videos.find(v => v.id === videoId);
-  if (!video) return false;
+    const newVideo: Video = {
+      ...video,
+      id: `v${Date.now()}`
+    };
 
-  video.description = description;
-  return true;
+    day.videos.push(newVideo);
+    await saveWeek(week);
+    return newVideo;
+  } catch (error) {
+    console.error('Video eklenemedi:', error);
+    return null;
+  }
+};
+
+export const removeVideoFromDay = async (weekId: string, dayId: string, videoId: string): Promise<boolean> => {
+  try {
+    const week = await getWeekById(weekId);
+    if (!week) return false;
+
+    const day = week.days.find(d => d.id === dayId);
+    if (!day) return false;
+
+    const index = day.videos.findIndex(v => v.id === videoId);
+    if (index === -1) return false;
+
+    day.videos.splice(index, 1);
+    await saveWeek(week);
+    return true;
+  } catch (error) {
+    console.error('Video silinemedi:', error);
+    return false;
+  }
+};
+
+export const updateVideoUrl = async (weekId: string, dayId: string, videoId: string, newUrl: string): Promise<boolean> => {
+  try {
+    const week = await getWeekById(weekId);
+    if (!week) return false;
+
+    const day = week.days.find(d => d.id === dayId);
+    if (!day) return false;
+
+    const video = day.videos.find(v => v.id === videoId);
+    if (!video) return false;
+
+    video.url = newUrl;
+    await saveWeek(week);
+    return true;
+  } catch (error) {
+    console.error('Video URL güncellenemedi:', error);
+    return false;
+  }
+};
+
+export const updateVideoDescription = async (weekId: string, dayId: string, videoId: string, description: string): Promise<boolean> => {
+  try {
+    const week = await getWeekById(weekId);
+    if (!week) return false;
+
+    const day = week.days.find(d => d.id === dayId);
+    if (!day) return false;
+
+    const video = day.videos.find(v => v.id === videoId);
+    if (!video) return false;
+
+    video.description = description;
+    await saveWeek(week);
+    return true;
+  } catch (error) {
+    console.error('Video açıklaması güncellenemedi:', error);
+    return false;
+  }
 };
 
 const getWeekStartDate = (date: Date): Date => {
-  const dayOfWeek = date.getUTCDay(); // 0 = Pazar, 1 = Pazartesi, ..., 6 = Cumartesi
+  const dayOfWeek = date.getUTCDay();
   const monday = new Date(date);
-  
-  // Pazartesi gününe git (Pazartesi = 1)
-  // Eğer Pazar ise (0), 6 gün geri git
-  // Eğer Pazartesi ise (1), 0 gün git
-  // Eğer Salı ise (2), 1 gün geri git
-  // ...
   const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
   monday.setUTCDate(monday.getUTCDate() - daysToSubtract);
   monday.setUTCHours(0, 0, 0, 0);
-  
   return monday;
 };
 
@@ -299,120 +452,192 @@ const getWeekEndDate = (startDate: Date): Date => {
   return endDate;
 };
 
-export const createWeek = (startDate?: string): Week => {
-  let weekStart: Date;
-  
-  if (startDate) {
-    // Kullanıcı tarih girdiyse, o tarihten itibaren pazartesiyi bul
-    const inputDate = new Date(startDate + 'T00:00:00Z');
-    weekStart = getWeekStartDate(inputDate);
-  } else {
-    // Son haftanın bitiş tarihinden sonraki pazartesi
-    const lastWeek = mockWeeks.length > 0 
-      ? mockWeeks.reduce((latest, week) => {
+export const createWeek = async (startDate?: string): Promise<Week> => {
+  try {
+    // Mevcut haftaları al
+    const existingWeeks = await getWeeks();
+    
+    let weekStart: Date;
+    
+    if (startDate) {
+      const inputDate = new Date(startDate + 'T00:00:00Z');
+      weekStart = getWeekStartDate(inputDate);
+    } else {
+      const lastWeek = existingWeeks.length > 0 
+        ? existingWeeks.reduce((latest, week) => {
+            const latestDate = new Date(latest.endDate + 'T00:00:00Z');
+            const weekDate = new Date(week.endDate + 'T00:00:00Z');
+            return weekDate > latestDate ? week : latest;
+          })
+        : null;
+      
+      if (lastWeek) {
+        const lastEndDate = new Date(lastWeek.endDate + 'T00:00:00Z');
+        weekStart = new Date(lastEndDate);
+        weekStart.setUTCDate(weekStart.getUTCDate() + 1);
+        weekStart = getWeekStartDate(weekStart);
+      } else {
+        const today = new Date();
+        weekStart = getWeekStartDate(today);
+      }
+    }
+
+    const weekEnd = getWeekEndDate(weekStart);
+    const startDateString = getDateString(weekStart);
+    const endDateString = getDateString(weekEnd);
+    
+    let weekNumber = 1;
+    if (existingWeeks.length > 0) {
+      const weekNumbers = existingWeeks.map(w => {
+        const match = w.title.match(/^(\d+)\./);
+        return match ? parseInt(match[1], 10) : 0;
+      });
+      weekNumber = Math.max(...weekNumbers, 0) + 1;
+    }
+    
+    const startMonth = weekStart.toLocaleDateString('tr-TR', { month: 'long', day: 'numeric' });
+    const endMonth = weekEnd.toLocaleDateString('tr-TR', { month: 'long', day: 'numeric' });
+
+    const newWeek: Week = {
+      id: `week-${Date.now()}`,
+      title: `${weekNumber}. Hafta - ${startMonth} - ${endMonth}`,
+      startDate: startDateString,
+      endDate: endDateString,
+      status: 'draft',
+      days: []
+    };
+
+    const savedWeek = await saveWeek(newWeek);
+    return savedWeek;
+  } catch (error) {
+    console.error('Hafta oluşturulamadı:', error);
+    throw error;
+  }
+};
+
+export const ensureNextWeekExists = async (): Promise<Week | null> => {
+  try {
+    const existingWeeks = await getWeeks();
+    const lastWeek = existingWeeks.length > 0 
+      ? existingWeeks.reduce((latest, week) => {
           const latestDate = new Date(latest.endDate + 'T00:00:00Z');
           const weekDate = new Date(week.endDate + 'T00:00:00Z');
           return weekDate > latestDate ? week : latest;
         })
       : null;
-    
-    if (lastWeek) {
-      const lastEndDate = new Date(lastWeek.endDate + 'T00:00:00Z');
-      weekStart = new Date(lastEndDate);
-      weekStart.setUTCDate(weekStart.getUTCDate() + 1); // Sonraki gün
-      weekStart = getWeekStartDate(weekStart);
-    } else {
-      // İlk hafta - bugünden itibaren pazartesi
-      const today = new Date();
-      weekStart = getWeekStartDate(today);
+
+    if (!lastWeek) {
+      return await createWeek();
     }
-  }
 
-  const weekEnd = getWeekEndDate(weekStart);
-  
-  const startDateString = getDateString(weekStart);
-  const endDateString = getDateString(weekEnd);
-  
-  // Hafta numarasını doğru hesapla - en yüksek hafta numarasını bul
-  let weekNumber = 1;
-  if (mockWeeks.length > 0) {
-    const weekNumbers = mockWeeks.map(w => {
-      const match = w.title.match(/^(\d+)\./);
-      return match ? parseInt(match[1], 10) : 0;
-    });
-    weekNumber = Math.max(...weekNumbers, 0) + 1;
-  }
-  
-  const startMonth = weekStart.toLocaleDateString('tr-TR', { month: 'long', day: 'numeric' });
-  const endMonth = weekEnd.toLocaleDateString('tr-TR', { month: 'long', day: 'numeric' });
-  
-  const newWeek: Week = {
-    id: `week-${Date.now()}`,
-    title: `${weekNumber}. Hafta - ${startMonth} - ${endMonth}`,
-    startDate: startDateString,
-    endDate: endDateString,
-    status: 'draft',
-    days: []
-  };
+    const lastEndDate = new Date(lastWeek.endDate + 'T00:00:00Z');
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    
+    const checkDate = new Date(lastEndDate);
+    checkDate.setUTCDate(checkDate.getUTCDate() - 3);
 
-  mockWeeks.push(newWeek);
-  return newWeek;
+    if (today >= checkDate) {
+      let nextMonday = new Date(lastEndDate);
+      nextMonday.setUTCDate(nextMonday.getUTCDate() + 1);
+      nextMonday = getWeekStartDate(nextMonday);
+      
+      const nextMondayString = getDateString(nextMonday);
+      const existingWeek = existingWeeks.find(w => w.startDate === nextMondayString);
+      if (!existingWeek) {
+        return await createWeek(nextMondayString);
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Otomatik hafta oluşturma hatası:', error);
+    return null;
+  }
 };
 
-/**
- * Video yükleme fonksiyonu (Mock)
- * Şu an blob URL oluşturuyor, ileride Microsoft Graph API ile SharePoint'e yüklenecek
- * @param file - Yüklenecek video dosyası
- * @returns Promise<string> - Video URL'si
- */
+// Video Yükleme - Large File Upload API
 export const uploadVideo = async (file: File): Promise<string> => {
-  // Mock upload: 2 saniye bekle ve blob URL oluştur
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  
-  // Tarayıcıda geçici blob URL oluştur
-  // İleride bu kısım Microsoft Graph API ile SharePoint'e yükleme yapacak
-  const blobUrl = URL.createObjectURL(file);
-  
-  return blobUrl;
-};
-
-export const ensureNextWeekExists = (): Week | null => {
-  // Son haftanın bitiş tarihini kontrol et
-  const lastWeek = mockWeeks.length > 0 
-    ? mockWeeks.reduce((latest, week) => {
-        const latestDate = new Date(latest.endDate + 'T00:00:00Z');
-        const weekDate = new Date(week.endDate + 'T00:00:00Z');
-        return weekDate > latestDate ? week : latest;
-      })
-    : null;
-
-  if (!lastWeek) {
-    // Hiç hafta yoksa, bugünden itibaren hafta oluştur
-    return createWeek();
-  }
-
-  const lastEndDate = new Date(lastWeek.endDate + 'T00:00:00Z');
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  
-  // Son haftanın bitişinden 3 gün öncesinden itibaren yeni hafta oluştur
-  const checkDate = new Date(lastEndDate);
-  checkDate.setUTCDate(checkDate.getUTCDate() - 3);
-  
-  if (today >= checkDate) {
-    // Son haftanın bitişinden sonraki pazartesi
-    let nextMonday = new Date(lastEndDate);
-    nextMonday.setUTCDate(nextMonday.getUTCDate() + 1);
-    nextMonday = getWeekStartDate(nextMonday);
+  try {
+    const driveId = await getDriveId();
+    const siteId = await getSiteId();
+    const fileName = `videos/${Date.now()}-${file.name}`;
     
-    const nextMondayString = getDateString(nextMonday);
-    
-    // Bu hafta zaten var mı kontrol et
-    const existingWeek = mockWeeks.find(w => w.startDate === nextMondayString);
-    if (!existingWeek) {
-      return createWeek(nextMondayString);
+    // 1. Upload session oluştur
+    const uploadSessionResponse = await graphRequest(
+      `/sites/${siteId}/drives/${driveId}/root:/${fileName}:/createUploadSession`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          '@microsoft.graph.conflictBehavior': 'replace',
+          name: file.name
+        })
+      }
+    );
+
+    const uploadUrl = uploadSessionResponse.uploadUrl;
+    if (!uploadUrl) {
+      throw new Error('Upload session oluşturulamadı');
     }
-  }
 
-  return null;
+    // 2. Dosyayı parça parça yükle (4MB chunk size)
+    const chunkSize = 4 * 1024 * 1024; // 4MB
+    const fileSize = file.size;
+    let uploadedBytes = 0;
+    let lastResponse: Response | null = null;
+
+    while (uploadedBytes < fileSize) {
+      const chunk = file.slice(uploadedBytes, uploadedBytes + chunkSize);
+      const chunkEnd = Math.min(uploadedBytes + chunkSize - 1, fileSize - 1);
+      
+      const response = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Length': (chunkEnd - uploadedBytes + 1).toString(),
+          'Content-Range': `bytes ${uploadedBytes}-${chunkEnd}/${fileSize}`
+        },
+        body: chunk
+      });
+
+      if (!response.ok && response.status !== 201 && response.status !== 200 && response.status !== 202) {
+        const errorText = await response.text();
+        throw new Error(`Upload hatası: ${response.status} - ${errorText}`);
+      }
+
+      lastResponse = response;
+      uploadedBytes = chunkEnd + 1;
+    }
+
+    // 3. Yükleme tamamlandıktan sonra dosya bilgilerini al
+    // Son response'tan dosya bilgilerini almayı dene
+    if (lastResponse) {
+      try {
+        const fileData = await lastResponse.json();
+        if (fileData.webUrl) {
+          return fileData.webUrl;
+        }
+      } catch (e) {
+        // JSON parse hatası, devam et
+      }
+    }
+
+    // Alternatif: Dosya bilgilerini Graph API'den al
+    const fileInfo = await graphRequest(
+      `/sites/${siteId}/drives/${driveId}/root:/${fileName}`
+    );
+
+    if (fileInfo.webUrl) {
+      return fileInfo.webUrl;
+    }
+
+    // Fallback: download URL
+    if (fileInfo['@microsoft.graph.downloadUrl']) {
+      return fileInfo['@microsoft.graph.downloadUrl'];
+    }
+
+    throw new Error('Video URL alınamadı');
+  } catch (error) {
+    console.error('Video yükleme hatası:', error);
+    throw error;
+  }
 };

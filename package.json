@@ -11,6 +11,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
+    "@azure/msal-browser": "^4.27.0",
+    "@microsoft/mgt-element": "^4.6.0",
+    "@microsoft/mgt-msal2-provider": "^4.6.0",
+    "@microsoft/mgt-react": "^4.6.0",
     "@supabase/supabase-js": "^2.57.4",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",

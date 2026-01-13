@@ -14,11 +14,15 @@ export default function AdminMode() {
   const [notification, setNotification] = useState<{ message: string; type: 'info' | 'success' } | null>(null);
   const navigate = useNavigate();
 
-  const loadWeeks = () => {
-    const loadedWeeks = getWeeks();
-    setWeeks(loadedWeeks);
-    if (loadedWeeks.length > 0 && !selectedWeekId) {
-      setSelectedWeekId(loadedWeeks[0].id);
+  const loadWeeks = async () => {
+    try {
+      const loadedWeeks = await getWeeks();
+      setWeeks(loadedWeeks);
+      if (loadedWeeks.length > 0 && !selectedWeekId) {
+        setSelectedWeekId(loadedWeeks[0].id);
+      }
+    } catch (error) {
+      console.error('Haftalar yüklenirken hata:', error);
     }
   };
 
@@ -47,14 +51,19 @@ export default function AdminMode() {
     }
   };
 
-  const handleRemoveVideo = (dayId: string, videoId: string) => {
+  const handleRemoveVideo = async (dayId: string, videoId: string) => {
     if (selectedWeek) {
-      removeVideoFromDay(selectedWeek.id, dayId, videoId);
-      loadWeeks();
+      try {
+        await removeVideoFromDay(selectedWeek.id, dayId, videoId);
+        await loadWeeks();
+      } catch (error) {
+        console.error('Video silinirken hata:', error);
+        alert('Video silinirken bir hata oluştu.');
+      }
     }
   };
 
-  const handleCreateWeek = () => {
+  const handleCreateWeek = async () => {
     try {
       // Önce yeni haftanın tarih aralığını hesapla (oluşturmadan önce)
       const lastWeek = weeks.length > 0 
@@ -115,11 +124,10 @@ export default function AdminMode() {
       });
 
       // Haftayı direkt oluştur
-      const newWeek = createWeek();
+      const newWeek = await createWeek();
       
       // State'i güncelle - önce haftaları yeniden yükle
-      const updatedWeeks = getWeeks();
-      setWeeks(updatedWeeks);
+      await loadWeeks();
       
       // Yeni haftayı seç
       setSelectedWeekId(newWeek.id);

@@ -27,32 +27,49 @@ export default function AdminEdit({ week, onSave, onWeekDeleted }: AdminEditProp
   const [editingDescription, setEditingDescription] = useState<{ dayId: string; videoId: string } | null>(null);
   const [descriptionValue, setDescriptionValue] = useState('');
 
-  const handleAddDay = (afterDateString?: string) => {
-    // Eğer afterDateString verilmemişse, haftanın başlangıç tarihini kullan
-    const dateToUse = afterDateString || currentWeek.startDate;
-    const newDay = addDayToWeek(currentWeek.id, dateToUse);
-    if (newDay) {
-      setCurrentWeek({ ...currentWeek, days: currentWeek.days });
-      onSave();
+  const handleAddDay = async (afterDateString?: string) => {
+    try {
+      // Eğer afterDateString verilmemişse, haftanın başlangıç tarihini kullan
+      const dateToUse = afterDateString || currentWeek.startDate;
+      const newDay = await addDayToWeek(currentWeek.id, dateToUse);
+      if (newDay) {
+        setCurrentWeek({ ...currentWeek, days: currentWeek.days });
+        onSave();
+      }
+    } catch (error) {
+      console.error('Gün eklenirken hata:', error);
+      alert('Gün eklenirken bir hata oluştu.');
     }
   };
 
-  const handleRemoveDay = (dayId: string) => {
-    if (removeDayFromWeek(currentWeek.id, dayId)) {
-      setCurrentWeek({
-        ...currentWeek,
-        days: currentWeek.days.filter(d => d.id !== dayId)
-      });
-      onSave();
+  const handleRemoveDay = async (dayId: string) => {
+    try {
+      const success = await removeDayFromWeek(currentWeek.id, dayId);
+      if (success) {
+        setCurrentWeek({
+          ...currentWeek,
+          days: currentWeek.days.filter(d => d.id !== dayId)
+        });
+        onSave();
+      }
+    } catch (error) {
+      console.error('Gün silinirken hata:', error);
+      alert('Gün silinirken bir hata oluştu.');
     }
   };
 
-  const handleChangeDayDate = (dayId: string, newDateString: string) => {
-    if (updateDayDate(currentWeek.id, dayId, newDateString)) {
-      const updated = { ...currentWeek };
-      updated.days.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      setCurrentWeek(updated);
-      onSave();
+  const handleChangeDayDate = async (dayId: string, newDateString: string) => {
+    try {
+      const success = await updateDayDate(currentWeek.id, dayId, newDateString);
+      if (success) {
+        const updated = { ...currentWeek };
+        updated.days.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        setCurrentWeek(updated);
+        onSave();
+      }
+    } catch (error) {
+      console.error('Gün tarihi güncellenirken hata:', error);
+      alert('Gün tarihi güncellenirken bir hata oluştu.');
     }
   };
 
@@ -60,12 +77,17 @@ export default function AdminEdit({ week, onSave, onWeekDeleted }: AdminEditProp
     setActiveDropzone({ dayId, type });
   };
 
-  const handleVideoUploaded = (dayId: string, type: 'story' | 'post') => (url: string, description?: string) => {
-    const video = addVideoToDay(currentWeek.id, dayId, { url, type, description });
-    if (video) {
-      setCurrentWeek({ ...currentWeek });
-      onSave();
-      setActiveDropzone(null);
+  const handleVideoUploaded = (dayId: string, type: 'story' | 'post') => async (url: string, description?: string) => {
+    try {
+      const video = await addVideoToDay(currentWeek.id, dayId, { url, type, description });
+      if (video) {
+        setCurrentWeek({ ...currentWeek });
+        onSave();
+        setActiveDropzone(null);
+      }
+    } catch (error) {
+      console.error('Video eklenirken hata:', error);
+      alert('Video eklenirken bir hata oluştu.');
     }
   };
 
@@ -73,18 +95,32 @@ export default function AdminEdit({ week, onSave, onWeekDeleted }: AdminEditProp
     setActiveDropzone(null);
   };
 
-  const handleRemoveVideo = (dayId: string, videoId: string) => {
-    if (removeVideoFromDay(currentWeek.id, dayId, videoId)) {
-      setCurrentWeek({ ...currentWeek });
-      onSave();
+  const handleRemoveVideo = async (dayId: string, videoId: string) => {
+    try {
+      const success = await removeVideoFromDay(currentWeek.id, dayId, videoId);
+      if (success) {
+        setCurrentWeek({ ...currentWeek });
+        onSave();
+      }
+    } catch (error) {
+      console.error('Video silinirken hata:', error);
+      alert('Video silinirken bir hata oluştu.');
     }
   };
 
-  const handleUpdateVideoUrl = (dayId: string, videoId: string) => {
+  const handleUpdateVideoUrl = async (dayId: string, videoId: string) => {
     const newUrl = prompt('Yeni video URL\'sini girin:');
-    if (newUrl && updateVideoUrl(currentWeek.id, dayId, videoId, newUrl)) {
-      setCurrentWeek({ ...currentWeek });
-      onSave();
+    if (newUrl) {
+      try {
+        const success = await updateVideoUrl(currentWeek.id, dayId, videoId, newUrl);
+        if (success) {
+          setCurrentWeek({ ...currentWeek });
+          onSave();
+        }
+      } catch (error) {
+        console.error('Video URL güncellenirken hata:', error);
+        alert('Video URL güncellenirken bir hata oluştu.');
+      }
     }
   };
 
@@ -99,12 +135,18 @@ export default function AdminEdit({ week, onSave, onWeekDeleted }: AdminEditProp
     setDescriptionValue(video.description || '');
   };
 
-  const handleSaveDescription = (dayId: string, videoId: string) => {
-    if (updateVideoDescription(currentWeek.id, dayId, videoId, descriptionValue)) {
-      setCurrentWeek({ ...currentWeek });
-      onSave();
-      setEditingDescription(null);
-      setDescriptionValue('');
+  const handleSaveDescription = async (dayId: string, videoId: string) => {
+    try {
+      const success = await updateVideoDescription(currentWeek.id, dayId, videoId, descriptionValue);
+      if (success) {
+        setCurrentWeek({ ...currentWeek });
+        onSave();
+        setEditingDescription(null);
+        setDescriptionValue('');
+      }
+    } catch (error) {
+      console.error('Video açıklaması güncellenirken hata:', error);
+      alert('Video açıklaması güncellenirken bir hata oluştu.');
     }
   };
 
@@ -113,14 +155,19 @@ export default function AdminEdit({ week, onSave, onWeekDeleted }: AdminEditProp
     setDescriptionValue('');
   };
 
-  const handleWeekStatusChange = (status: 'published' | 'draft') => {
-    const updated = { ...currentWeek, status };
-    saveWeek(updated);
-    setCurrentWeek(updated);
-    onSave();
+  const handleWeekStatusChange = async (status: 'published' | 'draft') => {
+    try {
+      const updated = { ...currentWeek, status };
+      await saveWeek(updated);
+      setCurrentWeek(updated);
+      onSave();
+    } catch (error) {
+      console.error('Hafta durumu güncellenirken hata:', error);
+      alert('Hafta durumu güncellenirken bir hata oluştu.');
+    }
   };
 
-  const handleDeleteWeek = () => {
+  const handleDeleteWeek = async () => {
     // Sadece boş haftalar silinebilir
     if (currentWeek.days.length > 0) {
       alert('Bu hafta silinemez çünkü içinde günler var. Önce tüm günleri silin.');
@@ -131,8 +178,16 @@ export default function AdminEdit({ week, onSave, onWeekDeleted }: AdminEditProp
       `"${currentWeek.title}" haftasını silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz.`
     );
 
-    if (confirmed && removeWeek(currentWeek.id)) {
-      onWeekDeleted?.();
+    if (confirmed) {
+      try {
+        const success = await removeWeek(currentWeek.id);
+        if (success) {
+          onWeekDeleted?.();
+        }
+      } catch (error) {
+        console.error('Hafta silinirken hata:', error);
+        alert('Hafta silinirken bir hata oluştu.');
+      }
     }
   };
 

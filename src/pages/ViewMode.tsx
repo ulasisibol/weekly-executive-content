@@ -12,13 +12,21 @@ export default function ViewMode() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // ViewMode'da otomatik hafta oluşturmayı tetikle
-    ensureNextWeekExists();
-    const loadedWeeks = getWeeks().filter(w => w.status === 'published');
-    setWeeks(loadedWeeks);
-    if (loadedWeeks.length > 0) {
-      setSelectedWeekId(loadedWeeks[0].id);
-    }
+    const loadData = async () => {
+      try {
+        // ViewMode'da otomatik hafta oluşturmayı tetikle
+        await ensureNextWeekExists();
+        const loadedWeeks = await getWeeks();
+        const publishedWeeks = loadedWeeks.filter(w => w.status === 'published');
+        setWeeks(publishedWeeks);
+        if (publishedWeeks.length > 0) {
+          setSelectedWeekId(publishedWeeks[0].id);
+        }
+      } catch (error) {
+        console.error('Haftalar yüklenirken hata:', error);
+      }
+    };
+    loadData();
   }, []);
 
   const selectedWeek = weeks.find((w) => w.id === selectedWeekId);
