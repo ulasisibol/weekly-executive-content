@@ -10,13 +10,16 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.57.4",
+ "dependencies": {
+    "@microsoft/mgt-element": "^4.2.0",
+    "@microsoft/mgt-msal2-provider": "^4.2.0",
+    "@microsoft/mgt-react": "^4.2.0",
+    "@supabase/supabase-js": "^2.45.0",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-dropzone": "^14.3.8",
-    "react-router-dom": "^7.12.0"
+    "react-dropzone": "^14.2.3",
+    "react-router-dom": "^6.26.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
