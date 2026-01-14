@@ -1710,31 +1710,48 @@ export const uploadVideo = async (file: File | null | undefined): Promise<string
     const driveId = await getDriveId();
     const siteId = await getSiteId();
     
-    // SORUN 2 ÇÖZÜMÜ: Klasör kontrolü ve oluşturma
+    // ADIM 1: Klasör garantisi - Klasör kontrolü ve oluşturma
     await ensureFolderExists('videos');
     
-    // Defensive Coding: Dosya adı temizleme
+    // ADIM 2: Benzersiz dosya adı - Timestamp + Random + Temizlenmiş dosya adı
     const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const fileName = `videos/${Date.now()}-${sanitizedFileName}`;
+    const timestamp = Date.now();
+    const randomSuffix = Math.random().toString(36).substring(2, 8); // 6 karakterlik random string
+    const uniqueFileName = `${timestamp}-${randomSuffix}-${sanitizedFileName}`;
+    const fileName = `videos/${uniqueFileName}`;
     
     console.log('📤 Video yükleniyor:', fileName);
+    console.log('🔐 Benzersiz dosya adı (çakışma önleme):', uniqueFileName);
     
-    // 1. Upload session oluştur
+    // ADIM 3: Upload session oluştur - conflictBehavior: 'rename' kullan (çakışma önleme)
+    // Not: Graph API'de createUploadSession için iki format desteklenir:
+    // 1. Direkt format: { "@microsoft.graph.conflictBehavior": "rename", "name": "..." }
+    // 2. Item wrapper: { "item": { "@microsoft.graph.conflictBehavior": "rename", "name": "..." } }
+    // Her iki format da çalışır, ancak direkt format daha yaygın kullanılır.
+    console.log('🔧 Upload session oluşturuluyor...', {
+      fileName: uniqueFileName,
+      fullPath: fileName,
+      conflictBehavior: 'rename'
+    });
+    
     const uploadSessionResponse = await graphRequest(
       `/sites/${siteId}/drives/${driveId}/root:/${fileName}:/createUploadSession`,
       {
         method: 'POST',
         body: JSON.stringify({
-          '@microsoft.graph.conflictBehavior': 'replace',
-          name: sanitizedFileName
+          '@microsoft.graph.conflictBehavior': 'rename', // 'replace' yerine 'rename' - çakışma önleme
+          name: uniqueFileName // Benzersiz dosya adı ile çakışma riski minimize edildi
         })
       }
     );
 
     const uploadUrl = uploadSessionResponse.uploadUrl;
     if (!uploadUrl) {
-      throw new Error('Upload session oluşturulamadı');
+      console.error('❌ Upload session yanıtı:', uploadSessionResponse);
+      throw new Error('Upload session oluşturulamadı - uploadUrl bulunamadı');
     }
+    
+    console.log('✅ Upload session oluşturuldu:', uploadUrl.substring(0, 100) + '...');
 
     // 2. Dosyayı parça parça yükle (4MB chunk size)
     const chunkSize = 4 * 1024 * 1024; // 4MB
