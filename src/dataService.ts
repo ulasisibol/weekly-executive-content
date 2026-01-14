@@ -1010,142 +1010,115 @@ export const removeWeek = async (weekId: string): Promise<boolean> => {
 
 export const addDayToWeek = async (weekId: string, _afterDateString?: string): Promise<Day | null> => {
   try {
+    // 1. HAFTAYI BUL
     const week = await getWeekById(weekId);
     if (!week) {
-      console.error('addDayToWeek: Hafta bulunamadı:', weekId);
+      console.error('❌ addDayToWeek: Hafta bulunamadı:', weekId);
       return null;
     }
 
-    // GÖREV 1: "Add Day" Fonksiyonunu Kilitlemeyi Kaldır (Bypass Logic)
-    // Tarih kontrolünü esnet - Eğer haftanın tarihleri yoksa, bugünün tarihini varsayılan olarak kabul et
-    let weekStartDate: Date;
-    let weekEndDate: Date;
-    
-    // Tarih geçerlilik kontrolü yardımcı fonksiyonu
-    const isValidDate = (dateStr: string | undefined): boolean => {
-      if (!dateStr || dateStr === '') return false;
-      const parsed = parseDate(dateStr);
-      return parsed !== null && !isNaN(parsed.getTime());
-    };
-    
-    // Eğer haftanın başlangıç tarihi varsa onu kullan, yoksa bugünü kullan
-    if (week.startDate && isValidDate(week.startDate)) {
-      const parsed = parseDate(week.startDate);
-      if (parsed) {
-        weekStartDate = parsed;
-      } else {
-        console.warn('⚠️ addDayToWeek: Hafta başlangıç tarihi parse edilemedi! Gün ekleme için "Bugün" tarihi baz alınıyor.');
-        const today = new Date();
-        const weekStart = getWeekStartDate(today);
-        weekStartDate = weekStart;
-      }
-    } else {
-      console.warn('⚠️ addDayToWeek: Hafta tarihi bulunamadı! Gün ekleme için "Bugün" tarihi baz alınıyor.');
-      const today = new Date();
-      const weekStart = getWeekStartDate(today);
-      weekStartDate = weekStart;
+    console.log('🔍 addDayToWeek - İşlem başlatıldı:', {
+      weekId: week.id,
+      weekTitle: week.title,
+      weekStartDate: week.startDate,
+      weekEndDate: week.endDate,
+      existingDays: week.days.length,
+      existingDayDates: week.days.map(d => d.date)
+    });
+
+    // 2. HAFTA TARİHLERİNİ KONTROL ET VE PARSE ET
+    if (!week.startDate || week.startDate === '' || !week.endDate || week.endDate === '') {
+      console.error('❌ addDayToWeek: Hafta tarihleri eksik:', {
+        startDate: week.startDate,
+        endDate: week.endDate
+      });
+      return null;
     }
-    
-    // EndDate kontrolü
-    if (week.endDate && isValidDate(week.endDate)) {
-      const parsed = parseDate(week.endDate);
-      if (parsed) {
-        weekEndDate = parsed;
-      } else {
-        console.warn('⚠️ addDayToWeek: Hafta bitiş tarihi parse edilemedi, varsayılan kullanılıyor.');
-        weekEndDate = getWeekEndDate(weekStartDate);
-      }
-    } else {
-      console.warn('⚠️ addDayToWeek: Hafta bitiş tarihi bulunamadı, varsayılan kullanılıyor.');
-      weekEndDate = getWeekEndDate(weekStartDate);
+
+    const weekStartDate = parseDate(week.startDate);
+    const weekEndDate = parseDate(week.endDate);
+
+    if (!weekStartDate || !weekEndDate) {
+      console.error('❌ addDayToWeek: Hafta tarihleri parse edilemedi:', {
+        startDate: week.startDate,
+        endDate: week.endDate
+      });
+      return null;
     }
+
+    console.log('✅ addDayToWeek - Hafta tarihleri parse edildi:', {
+      weekStartDate: getDateString(weekStartDate),
+      weekEndDate: getDateString(weekEndDate)
+    });
+
+    // 3. YENİ GÜN TARİHİNİ HESAPLA
+    let nextDateStr: string;
     
-    // targetDate artık kesinlikle dolu, işleme devam et...
-    let nextDate: Date | null = null;
-      
     if (week.days.length === 0) {
       // İlk gün - haftanın başlangıç tarihini kullan
-      nextDate = new Date(weekStartDate);
-      console.log('addDayToWeek: İlk gün ekleniyor, başlangıç tarihi:', getDateString(weekStartDate));
+      nextDateStr = week.startDate;
+      console.log('📅 addDayToWeek - İlk gün ekleniyor:', nextDateStr);
     } else {
-      // Mevcut günlerin tarihlerini al ve en son tarihi bul
-      const validDates = week.days
-        .map(d => {
-          const parsed = parseDate(d.date);
-          return parsed ? parsed.getTime() : null;
-        })
-        .filter((time): time is number => time !== null)
-        .sort((a, b) => b - a);
-
-      if (validDates.length === 0) {
-        console.error('addDayToWeek: Geçerli tarih bulunamadı mevcut günlerde, başlangıç tarihi kullanılıyor');
-        nextDate = new Date(weekStartDate);
-      } else {
-        const lastDate = new Date(validDates[0]);
-        nextDate = new Date(lastDate);
-        nextDate.setUTCDate(nextDate.getUTCDate() + 1);
-        console.log('addDayToWeek: Son tarihten sonraki gün:', nextDate.toISOString());
+      // Mevcut günler var - en son günün tarihinden +1 gün
+      const lastDay = week.days[week.days.length - 1];
+      const lastDate = parseDate(lastDay.date);
+      
+      if (!lastDate) {
+        console.error('❌ addDayToWeek: Son günün tarihi geçersiz:', lastDay.date);
+        return null;
       }
-    }
 
-    if (!nextDate || isNaN(nextDate.getTime())) {
-      console.error('addDayToWeek: Geçersiz nextDate oluşturuldu, bugün kullanılıyor');
-      nextDate = new Date(); // Son çare: Bugün
-    }
-
-    const newDateString = getDateString(nextDate);
-    console.log('addDayToWeek: Yeni tarih string:', newDateString);
-
-    // Hafta bitiş tarihini kontrol et (ama kilitleme - sadece uyar)
-    const newDateParsed = parseDate(newDateString);
-    if (!newDateParsed) {
-      console.error('addDayToWeek: Yeni tarih parse edilemedi, bugün kullanılıyor:', newDateString);
-      nextDate = new Date(); // Son çare: Bugün
-      const fallbackDateString = getDateString(nextDate);
-      const newDay: Day = {
-        id: `d${weekId}-${Date.now()}`,
-        date: fallbackDateString,
-        dayOfWeek: getDayOfWeek(fallbackDateString),
-        videos: []
-      };
-      week.days.push(newDay);
-      await saveWeek(week);
-      console.log('addDayToWeek: Gün başarıyla eklendi (fallback):', newDay);
-      return newDay;
-    }
-    
-    // Tarih hafta bitişinden sonra olsa bile ekle (kullanıcıyı kilitleme)
-    if (newDateParsed > weekEndDate) {
-      console.warn('addDayToWeek: Yeni tarih hafta bitiş tarihinden sonra, yine de ekleniyor:', {
-        newDate: newDateString,
-        endDate: getDateString(weekEndDate)
+      // +1 gün ekle (UTC kullanarak timezone sorunlarını önle)
+      const nextDate = new Date(lastDate);
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+      nextDateStr = getDateString(nextDate);
+      
+      console.log('📅 addDayToWeek - Sonraki gün hesaplandı:', {
+        lastDayDate: lastDay.date,
+        nextDayDate: nextDateStr
       });
     }
 
+    // 4. SINIR KONTROLÜ - Hafta bitiş tarihini geçiyor mu?
+    const nextDate = parseDate(nextDateStr);
+    if (!nextDate) {
+      console.error('❌ addDayToWeek: Hesaplanan tarih parse edilemedi:', nextDateStr);
+      return null;
+    }
+
+    if (nextDate > weekEndDate) {
+      console.warn('⚠️ addDayToWeek: Yeni tarih hafta bitiş tarihini geçiyor:', {
+        nextDate: nextDateStr,
+        weekEndDate: week.endDate,
+        message: 'Haftanın sonuna gelindi!'
+      });
+      // KULLANICI İSTEĞİ: İşlemi durdur (kilitleme yerine uyarı)
+      return null;
+    }
+
+    // 5. YENİ GÜNÜ OLUŞTUR
+    const dayOfWeek = getDayOfWeek(nextDateStr);
     const newDay: Day = {
       id: `d${weekId}-${Date.now()}`,
-      date: newDateString,
-      dayOfWeek: getDayOfWeek(newDateString),
+      date: nextDateStr,
+      dayOfWeek: dayOfWeek,
       videos: []
     };
 
-    // Tarih sırasına göre ekle
-    const insertIndex = week.days.findIndex(d => {
-      const dayDate = parseDate(d.date);
-      return dayDate && dayDate.getTime() > newDateParsed.getTime();
+    console.log('✨ addDayToWeek - Yeni gün oluşturuldu:', {
+      id: newDay.id,
+      date: newDay.date,
+      dayOfWeek: newDay.dayOfWeek
     });
 
-    if (insertIndex === -1) {
-      week.days.push(newDay);
-    } else {
-      week.days.splice(insertIndex, 0, newDay);
-    }
-
+    // 6. GÜNÜ HAFTAYA EKLE VE KAYDET
+    week.days.push(newDay);
     await saveWeek(week);
-    console.log('addDayToWeek: Gün başarıyla eklendi:', newDay);
+    
+    console.log('✅ addDayToWeek: Gün başarıyla eklendi ve kaydedildi!');
     return newDay;
   } catch (error) {
-    console.error('Gün eklenemedi:', error);
+    console.error('❌ Gün eklenemedi:', error);
     if (error instanceof Error) {
       console.error('Hata detayı:', error.message, error.stack);
     }
