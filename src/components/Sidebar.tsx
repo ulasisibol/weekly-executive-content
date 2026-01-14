@@ -104,6 +104,7 @@ export default function Sidebar({ weeks, selectedWeekId, onSelectWeek, isOpen = 
           ))
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
