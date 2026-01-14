@@ -21,65 +21,93 @@ export default function ViewMode() {
         await ensureNextWeekExists();
         const loadedWeeks = await getWeeks();
         
-        // GÖREV 1: Tüm published haftaları göster (en yeni en üstte)
-        // getWeeks zaten desc sıralama yapıyor, bu yüzden sıralama doğru
-        const publishedWeeks = loadedWeeks.filter(w => w.status === 'published');
-        
-        console.log('📅 Yüklenen haftalar:', {
+        // GÖREV 1 DÜZELTME: Tüm haftaları göster (published, draft, hepsi)
+        // Kullanıcı görüntüleme modunda tüm haftaları görebilmeli
+        console.log('📅 Yüklenen haftalar (ViewMode):', {
           toplamHafta: loadedWeeks.length,
-          publishedHafta: publishedWeeks.length,
-          haftalar: publishedWeeks.map(w => ({ id: w.id, title: w.title, startDate: w.startDate }))
+          haftalar: loadedWeeks.map(w => ({ 
+            id: w.id, 
+            title: w.title, 
+            status: w.status,
+            startDate: w.startDate,
+            endDate: w.endDate
+          }))
         });
         
-        setAllWeeks(publishedWeeks);
-        setWeeks(publishedWeeks); // Başlangıçta filtre yok, tüm haftalar gösterilir
+        // Tüm haftaları göster (status filtresi yok)
+        setAllWeeks(loadedWeeks);
+        setWeeks(loadedWeeks);
         
-        if (publishedWeeks.length > 0) {
+        if (loadedWeeks.length > 0) {
           // En son eklenen (ilk sıradaki) haftayı seç
-          setSelectedWeekId(publishedWeeks[0].id);
+          setSelectedWeekId(loadedWeeks[0].id);
+          console.log('✅ İlk hafta seçildi:', loadedWeeks[0].title);
         }
       } catch (error) {
-        console.error('Haftalar yüklenirken hata:', error);
+        console.error('❌ Haftalar yüklenirken hata:', error);
       }
     };
     loadData();
   }, []);
 
-  // GÖREV 3: Tarih filtresi - Seçilen tarihe göre haftaları filtrele
+  // GÖREV 3 DÜZELTME: Tarih filtresi - Seçilen tarihe göre haftaları filtrele
   useEffect(() => {
     if (!selectedDate || selectedDate === '') {
       // Filtre yoksa tüm haftaları göster
+      console.log('🔄 Tarih filtresi temizlendi, tüm haftalar gösteriliyor');
       setWeeks(allWeeks);
+      if (allWeeks.length > 0 && !selectedWeekId) {
+        setSelectedWeekId(allWeeks[0].id);
+      }
       return;
     }
 
     // Seçilen tarihi içeren haftayı bul
     const filteredWeeks = allWeeks.filter(week => {
-      if (!week.startDate || !week.endDate) return false;
+      if (!week.startDate || !week.endDate) {
+        console.warn('⚠️ Hafta tarih bilgisi eksik:', week.title);
+        return false;
+      }
       
-      const selectedDateObj = new Date(selectedDate + 'T00:00:00Z');
-      const weekStartDate = new Date(week.startDate + 'T00:00:00Z');
-      const weekEndDate = new Date(week.endDate + 'T00:00:00Z');
-      
-      // Seçilen tarih hafta aralığında mı?
-      return selectedDateObj >= weekStartDate && selectedDateObj <= weekEndDate;
+      try {
+        // Tarih karşılaştırması için UTC kullan
+        const selectedDateObj = new Date(selectedDate + 'T00:00:00Z');
+        const weekStartDate = new Date(week.startDate + 'T00:00:00Z');
+        const weekEndDate = new Date(week.endDate + 'T00:00:00Z');
+        
+        console.log('📊 Tarih karşılaştırması:', {
+          hafta: week.title,
+          secilenTarih: selectedDate,
+          haftaBaslangic: week.startDate,
+          haftaBitis: week.endDate,
+          aralikIcinde: selectedDateObj >= weekStartDate && selectedDateObj <= weekEndDate
+        });
+        
+        // Seçilen tarih hafta aralığında mı?
+        return selectedDateObj >= weekStartDate && selectedDateObj <= weekEndDate;
+      } catch (error) {
+        console.error('❌ Tarih karşılaştırma hatası:', error, week);
+        return false;
+      }
     });
 
-    console.log('🔍 Tarih filtresi:', {
+    console.log('🔍 Tarih filtresi sonucu:', {
       secilenTarih: selectedDate,
-      bulunanHaftalar: filteredWeeks.length,
-      haftalar: filteredWeeks.map(w => w.title)
+      bulunanHaftaSayisi: filteredWeeks.length,
+      bulunanHaftalar: filteredWeeks.map(w => w.title)
     });
 
     setWeeks(filteredWeeks);
     
-    // Filtreleme sonrası ilk haftayı seç
+    // Filtreleme sonrası ilk haftayı seç veya seçimi temizle
     if (filteredWeeks.length > 0) {
       setSelectedWeekId(filteredWeeks[0].id);
+      console.log('✅ Filtrelenen hafta seçildi:', filteredWeeks[0].title);
     } else {
       setSelectedWeekId(null);
+      console.log('⚠️ Seçilen tarihte hafta bulunamadı');
     }
-  }, [selectedDate, allWeeks]);
+  }, [selectedDate, allWeeks, selectedWeekId]);
 
   const selectedWeek = weeks.find((w) => w.id === selectedWeekId);
   const currentIndex = weeks.findIndex((w) => w.id === selectedWeekId);
@@ -109,13 +137,22 @@ export default function ViewMode() {
           <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 sm:py-4 flex flex-col gap-3">
             {/* Üst Satır: Mod Başlığı ve Yönetici Butonu */}
             <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <Eye className="w-5 h-5 text-gray-600" />
-                <span className="text-sm font-medium text-gray-600">Görüntüleme Modu</span>
-                {weeks.length > 0 && (
-                  <span className="text-xs text-gray-500 ml-2">
-                    ({weeks.length} hafta)
-                  </span>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-5 h-5 text-gray-600" />
+                  <span className="text-sm font-medium text-gray-600">Görüntüleme Modu</span>
+                </div>
+                {allWeeks.length > 0 && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full font-medium">
+                      {allWeeks.length} Hafta
+                    </span>
+                    {selectedDate && weeks.length !== allWeeks.length && (
+                      <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full font-medium">
+                        {weeks.length} Filtrelendi
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -132,20 +169,29 @@ export default function ViewMode() {
             <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
               {/* Tarih Filtresi */}
               <div className="flex items-center gap-2 flex-1">
-                <Calendar className="w-4 h-4 text-gray-500" />
+                <Calendar className="w-4 h-4 text-gray-500 flex-shrink-0" />
                 <input
                   type="date"
                   value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
+                  onChange={(e) => {
+                    const newDate = e.target.value;
+                    console.log('📅 Tarih seçildi:', newDate);
+                    setSelectedDate(newDate);
+                  }}
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0078d4] focus:border-transparent"
-                  placeholder="Tarih seçin"
+                  placeholder="GG/AA/YYYY"
+                  title="Tarih seçerek filtreleme yapabilirsiniz"
+                  lang="tr"
                 />
                 {selectedDate && (
                   <button
-                    onClick={() => setSelectedDate('')}
-                    className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                    onClick={() => {
+                      console.log('🔄 Tarih filtresi temizleniyor');
+                      setSelectedDate('');
+                    }}
+                    className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors whitespace-nowrap"
                   >
-                    Temizle
+                    ✕ Temizle
                   </button>
                 )}
               </div>
