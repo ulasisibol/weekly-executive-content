@@ -707,6 +707,20 @@ const getListSchema = async (): Promise<any> => {
     const siteId = await getSiteId();
     const list = await graphRequest(`/sites/${siteId}/lists/${listId}?$expand=columns($select=name,displayName,readOnly,required,text,dateTime)`);
     cachedListSchema = list;
+    
+    // GÖREV 2: Gerçek Sütun İsimlerini Listele (Source of Truth)
+    if (list?.columns && Array.isArray(list.columns)) {
+      console.log('📋 TÜM LISTE SÜTUNLARI (Internal Names):', 
+        list.columns.map((c: any) => ({ 
+          DisplayName: c.displayName, 
+          Name: c.name, // <-- Internal Name bu!
+          Type: c.columnGroup || (c.text ? 'Text' : c.dateTime ? 'DateTime' : 'Unknown'),
+          ReadOnly: c.readOnly,
+          Required: c.required
+        }))
+      );
+    }
+    
     return list;
   } catch (error) {
     console.error('Liste şeması alınamadı:', error);
@@ -723,8 +737,6 @@ const ensureRequiredFields = async (): Promise<void> => {
   }
   
   try {
-    const listId = await getListId();
-    const siteId = await getSiteId();
     const schema = await getListSchema();
     
     if (!schema?.columns) {
@@ -769,8 +781,12 @@ const ensureRequiredFields = async (): Promise<void> => {
       return;
     }
     
-    // Eksik alanları ekle
+    // GÖREV 1: Otomatik Sütun Oluşturmayı DEVRE DIŞI BIRAK
+    // Eksik alanları ekleme işlemi devre dışı - sadece uyarı ver
     for (const field of fieldsToAdd) {
+      console.warn(`⚠️ Sütun bulunamadı ancak otomatik oluşturma devre dışı: ${field.displayName} (${field.name})`);
+      // Otomatik oluşturma kodu yorum satırına alındı:
+      /*
       try {
         console.log(`Alan ekleniyor: ${field.displayName} (${field.type})`);
         
@@ -822,11 +838,14 @@ const ensureRequiredFields = async (): Promise<void> => {
         fieldsCheckDone = true;
         return;
       }
+      */
     }
     
-    // Başarılı olduysa işaretle
+    // İşaretle ve çık
     fieldsCheckDone = true;
-    console.log(`✅ ${fieldsToAdd.length} alan ekleme işlemi tamamlandı`);
+    if (fieldsToAdd.length > 0) {
+      console.warn(`⚠️ ${fieldsToAdd.length} alan bulunamadı ancak otomatik oluşturma devre dışı. Lütfen SharePoint'te manuel olarak oluşturun.`);
+    }
   } catch (error) {
     console.error('Alan kontrolü/ekleme hatası:', error);
     // Hata olsa bile bir daha deneme
