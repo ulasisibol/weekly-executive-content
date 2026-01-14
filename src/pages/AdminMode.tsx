@@ -5,13 +5,14 @@ import { Week } from '../types';
 import Sidebar from '../components/Sidebar';
 import AdminEdit from '../components/AdminEdit';
 import WeekDetail from '../components/WeekDetail';
-import { Lock, Eye, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { Lock, Eye, ChevronLeft, ChevronRight, Plus, Menu } from 'lucide-react';
 
 export default function AdminMode() {
   const [weeks, setWeeks] = useState<Week[]>([]);
   const [selectedWeekId, setSelectedWeekId] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'info' | 'success' } | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobil sidebar toggle
   const navigate = useNavigate();
 
   const loadWeeks = async () => {
@@ -166,6 +167,8 @@ export default function AdminMode() {
           setSelectedWeekId(id);
           setIsEditMode(false);
         }}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
 
       <div className="flex-1 flex flex-col">
@@ -187,7 +190,15 @@ export default function AdminMode() {
           </div>
         )}
         <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            {/* Mobil hamburger menü butonu */}
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors mr-2"
+              aria-label="Menüyü aç"
+            >
+              <Menu className="w-5 h-5 text-gray-600" />
+            </button>
             <Lock className="w-5 h-5 text-[#0078d4]" />
             <span className="text-sm font-medium text-gray-700">Yönetici Modu</span>
           </div>

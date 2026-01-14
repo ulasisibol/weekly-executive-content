@@ -4,13 +4,14 @@ import { getWeeks, ensureNextWeekExists } from '../dataService';
 import { Week } from '../types';
 import Sidebar from '../components/Sidebar';
 import WeekDetail from '../components/WeekDetail';
-import { Lock, Eye, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { Lock, Eye, ChevronLeft, ChevronRight, Calendar, Menu } from 'lucide-react';
 
 export default function ViewMode() {
   const [allWeeks, setAllWeeks] = useState<Week[]>([]); // Tüm haftalar (published ve draft)
   const [weeks, setWeeks] = useState<Week[]>([]); // Görüntülenen haftalar (filtreleme sonrası)
   const [selectedWeekId, setSelectedWeekId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(''); // Tarih filtresi
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobil sidebar toggle
   const navigate = useNavigate();
 
   // Haftaları yükle
@@ -130,6 +131,8 @@ export default function ViewMode() {
         weeks={weeks}
         selectedWeekId={selectedWeekId}
         onSelectWeek={setSelectedWeekId}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
 
       {selectedWeek || weeks.length > 0 ? (
@@ -138,6 +141,14 @@ export default function ViewMode() {
             {/* Üst Satır: Mod Başlığı ve Yönetici Butonu */}
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-3">
+                {/* Mobil hamburger menü butonu */}
+                <button
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors mr-2"
+                  aria-label="Menüyü aç"
+                >
+                  <Menu className="w-5 h-5 text-gray-600" />
+                </button>
                 <div className="flex items-center gap-2">
                   <Eye className="w-5 h-5 text-gray-600" />
                   <span className="text-sm font-medium text-gray-600">Görüntüleme Modu</span>

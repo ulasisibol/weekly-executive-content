@@ -1,19 +1,60 @@
 import { Week } from '../types';
-import { Calendar, Circle, CheckCircle2 } from 'lucide-react';
+import { Calendar, Circle, CheckCircle2, X } from 'lucide-react';
 
 interface SidebarProps {
   weeks: Week[];
   selectedWeekId: string | null;
   onSelectWeek: (id: string) => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export default function Sidebar({ weeks, selectedWeekId, onSelectWeek }: SidebarProps) {
+export default function Sidebar({ weeks, selectedWeekId, onSelectWeek, isOpen = true, onClose }: SidebarProps) {
+  const handleSelectWeek = (id: string) => {
+    onSelectWeek(id);
+    // Mobilde hafta seçildiğinde sidebar'ı kapat
+    if (onClose && window.innerWidth < 1024) {
+      onClose();
+    }
+  };
+
   return (
-    <div className="w-80 bg-white border-r border-gray-200 h-screen overflow-y-auto">
-      <div className="p-6 border-b border-gray-200">
-        <h1 className="text-xl font-semibold text-gray-900">Haftalık Güncellemeler</h1>
-        <p className="text-sm text-gray-500 mt-1">Video içerik merkezi</p>
-      </div>
+    <>
+      {/* Mobil Overlay/Backdrop */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div
+        className={`
+          fixed lg:static
+          top-0 left-0
+          w-80 bg-white border-r border-gray-200 h-screen overflow-y-auto z-50
+          transform transition-transform duration-300 ease-in-out
+          ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+          lg:translate-x-0
+        `}
+      >
+        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Haftalık Güncellemeler</h1>
+            <p className="text-sm text-gray-500 mt-1">Video içerik merkezi</p>
+          </div>
+          {/* Mobilde kapatma butonu */}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              aria-label="Menüyü kapat"
+            >
+              <X className="w-5 h-5 text-gray-600" />
+            </button>
+          )}
+        </div>
 
       <div className="p-4">
         {weeks.length === 0 ? (
@@ -22,7 +63,7 @@ export default function Sidebar({ weeks, selectedWeekId, onSelectWeek }: Sidebar
           weeks.map((week) => (
             <button
               key={week.id}
-              onClick={() => onSelectWeek(week.id)}
+              onClick={() => handleSelectWeek(week.id)}
               className={`w-full text-left p-4 rounded-lg mb-2 transition-all ${
                 selectedWeekId === week.id
                   ? 'bg-blue-50 border-2 border-[#0078d4]'
