@@ -8,6 +8,7 @@ import {
   updateDayDate,
   addVideoToDay,
   removeVideoFromDay,
+  getWeekById,
   updateVideoUrl,
   updateVideoDescription,
   removeWeek
@@ -33,7 +34,21 @@ export default function AdminEdit({ week, onSave, onWeekDeleted }: AdminEditProp
       const dateToUse = afterDateString || currentWeek.startDate;
       const newDay = await addDayToWeek(currentWeek.id, dateToUse);
       if (newDay) {
-        setCurrentWeek({ ...currentWeek, days: currentWeek.days });
+        // SORUN 1 ÇÖZÜMÜ: State'i güncelle - Güncel haftayı tekrar çek
+        const updatedWeek = await getWeekById(currentWeek.id);
+        if (updatedWeek) {
+          setCurrentWeek(updatedWeek);
+        } else {
+          // Fallback: Yeni günü mevcut state'e ekle
+          setCurrentWeek({ 
+            ...currentWeek, 
+            days: [...currentWeek.days, newDay].sort((a, b) => {
+              const dateA = new Date(a.date + 'T00:00:00Z').getTime();
+              const dateB = new Date(b.date + 'T00:00:00Z').getTime();
+              return dateA - dateB;
+            })
+          });
+        }
         onSave();
       }
     } catch (error) {

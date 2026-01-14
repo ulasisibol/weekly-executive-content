@@ -1627,6 +1627,58 @@ export const ensureNextWeekExists = async (): Promise<Week | null> => {
   }
 };
 
+// SORUN 2 ÇÖZÜMÜ: Klasör kontrolü ve oluşturma
+const ensureFolderExists = async (folderPath: string): Promise<void> => {
+  try {
+    const driveId = await getDriveId();
+    const siteId = await getSiteId();
+    
+    // Klasörün var olup olmadığını kontrol et
+    try {
+      const folderCheck = await graphRequest(`/sites/${siteId}/drives/${driveId}/root:/${folderPath}:`);
+      if (folderCheck && folderCheck.folder) {
+        console.log(`✅ Klasör zaten mevcut: ${folderPath}`);
+        return; // Klasör var, devam et
+      }
+    } catch (error: any) {
+      // 404 hatası = klasör yok, oluştur
+      const is404 = error?.status === 404 || 
+                    error?.message?.includes('404') || 
+                    error?.message?.includes('ItemNotFound') ||
+                    (error?.error?.code && error.error.code.includes('itemNotFound'));
+      
+      if (is404) {
+        console.log(`📁 Klasör bulunamadı, oluşturuluyor: ${folderPath}`);
+        
+        try {
+          // Klasör oluştur - SharePoint'te klasör oluşturma için doğru endpoint
+          await graphRequest(
+            `/sites/${siteId}/drives/${driveId}/root/children`,
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                name: folderPath,
+                folder: {},
+                '@microsoft.graph.conflictBehavior': 'rename'
+              })
+            }
+          );
+          console.log(`✅ Klasör oluşturuldu: ${folderPath}`);
+        } catch (createError: any) {
+          console.warn(`⚠️ Klasör oluşturma hatası (devam ediliyor):`, createError);
+          // Hata olsa bile devam et - belki klasör zaten var veya yetki yok
+        }
+      } else {
+        // Başka bir hata, logla ama devam et
+        console.warn(`⚠️ Klasör kontrolü hatası (devam ediliyor):`, error);
+      }
+    }
+  } catch (error) {
+    console.error('Klasör kontrolü/oluşturma hatası:', error);
+    // Hata olsa bile devam et - belki klasör zaten var
+  }
+};
+
 // Video Yükleme - Large File Upload API
 export const uploadVideo = async (file: File | null | undefined): Promise<string> => {
   try {
@@ -1658,9 +1710,14 @@ export const uploadVideo = async (file: File | null | undefined): Promise<string
     const driveId = await getDriveId();
     const siteId = await getSiteId();
     
+    // SORUN 2 ÇÖZÜMÜ: Klasör kontrolü ve oluşturma
+    await ensureFolderExists('videos');
+    
     // Defensive Coding: Dosya adı temizleme
     const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const fileName = `videos/${Date.now()}-${sanitizedFileName}`;
+    
+    console.log('📤 Video yükleniyor:', fileName);
     
     // 1. Upload session oluştur
     const uploadSessionResponse = await graphRequest(
@@ -1669,7 +1726,7 @@ export const uploadVideo = async (file: File | null | undefined): Promise<string
         method: 'POST',
         body: JSON.stringify({
           '@microsoft.graph.conflictBehavior': 'replace',
-          name: file.name
+          name: sanitizedFileName
         })
       }
     );
@@ -1707,34 +1764,47 @@ export const uploadVideo = async (file: File | null | undefined): Promise<string
       uploadedBytes = chunkEnd + 1;
     }
 
-    // 3. Yükleme tamamlandıktan sonra dosya bilgilerini al
-    // Son response'tan dosya bilgilerini almayı dene
-    if (lastResponse) {
-      try {
-        const fileData = await lastResponse.json();
-        if (fileData.webUrl) {
-          return fileData.webUrl;
-        }
-      } catch (e) {
-        // JSON parse hatası, devam et
-      }
-    }
-
-    // Alternatif: Dosya bilgilerini Graph API'den al
+    // SORUN 3 ÇÖZÜMÜ: Yükleme tamamlandıktan sonra dosya bilgilerini al - webUrl kullan
+    console.log('✅ Video yükleme tamamlandı, dosya bilgileri alınıyor...');
+    
+    // Alternatif: Dosya bilgilerini Graph API'den al (en güvenilir yöntem)
     const fileInfo = await graphRequest(
       `/sites/${siteId}/drives/${driveId}/root:/${fileName}`
     );
 
+    console.log('📄 Dosya bilgileri:', {
+      webUrl: fileInfo.webUrl,
+      downloadUrl: fileInfo['@microsoft.graph.downloadUrl'],
+      name: fileInfo.name
+    });
+
+    // SORUN 3 ÇÖZÜMÜ: webUrl kullan (paylaşılabilir link)
     if (fileInfo.webUrl) {
+      console.log('✅ Video URL alındı (webUrl):', fileInfo.webUrl);
       return fileInfo.webUrl;
     }
 
-    // Fallback: download URL
+    // Fallback 1: Son response'tan dosya bilgilerini almayı dene
+    if (lastResponse) {
+      try {
+        const fileData = await lastResponse.json();
+        if (fileData.webUrl) {
+          console.log('✅ Video URL alındı (lastResponse):', fileData.webUrl);
+          return fileData.webUrl;
+        }
+      } catch (e) {
+        // JSON parse hatası, devam et
+        console.warn('⚠️ lastResponse JSON parse hatası:', e);
+      }
+    }
+
+    // Fallback 2: download URL (son çare - geçici link)
     if (fileInfo['@microsoft.graph.downloadUrl']) {
+      console.warn('⚠️ webUrl bulunamadı, downloadUrl kullanılıyor (geçici link)');
       return fileInfo['@microsoft.graph.downloadUrl'];
     }
 
-    throw new Error('Video URL alınamadı');
+    throw new Error('Video URL alınamadı - webUrl ve downloadUrl bulunamadı');
   } catch (error) {
     console.error('Video yükleme hatası:', error);
     throw error;
