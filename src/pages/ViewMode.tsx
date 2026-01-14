@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getWeeks, ensureNextWeekExists } from '../dataService';
 import { Week } from '../types';
@@ -12,6 +12,7 @@ export default function ViewMode() {
   const [selectedWeekId, setSelectedWeekId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(''); // Tarih filtresi
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobil sidebar toggle
+  const mobileDateInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
   // Haftaları yükle
@@ -155,33 +156,31 @@ export default function ViewMode() {
               {/* Mobil: Tarih seçme butonu (takvim ikonu) ve Yönetici butonu */}
               <div className="flex items-center gap-2">
                 {/* Mobilde takvim ikonu - tarih seçme */}
-                <div className="lg:hidden relative">
+                <label
+                  htmlFor="mobile-date-input"
+                  className={`lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors relative cursor-pointer ${
+                    selectedDate ? 'bg-blue-50' : ''
+                  }`}
+                  aria-label="Tarih seç"
+                  title={selectedDate ? `Seçili: ${new Date(selectedDate + 'T00:00:00Z').toLocaleDateString('tr-TR')}` : 'Tarih seç'}
+                >
                   <input
+                    ref={mobileDateInputRef}
                     type="date"
+                    id="mobile-date-input"
                     value={selectedDate}
                     onChange={(e) => {
                       const newDate = e.target.value;
                       console.log('📅 Tarih seçildi:', newDate);
                       setSelectedDate(newDate);
                     }}
-                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-                    id="mobile-date-input"
-                    aria-label="Tarih seç"
+                    className="hidden"
                   />
-                  <button
-                    onClick={() => document.getElementById('mobile-date-input')?.click()}
-                    className={`p-2 hover:bg-gray-100 rounded-lg transition-colors relative ${
-                      selectedDate ? 'bg-blue-50' : ''
-                    }`}
-                    aria-label="Tarih seç"
-                    title={selectedDate ? `Seçili: ${new Date(selectedDate + 'T00:00:00Z').toLocaleDateString('tr-TR')}` : 'Tarih seç'}
-                  >
-                    <Calendar className={`w-5 h-5 ${selectedDate ? 'text-blue-600' : 'text-gray-600'}`} />
-                    {selectedDate && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-600 rounded-full"></span>
-                    )}
-                  </button>
-                </div>
+                  <Calendar className={`w-5 h-5 ${selectedDate ? 'text-blue-600' : 'text-gray-600'}`} />
+                  {selectedDate && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-600 rounded-full"></span>
+                  )}
+                </label>
                 
                 {/* Yönetici butonu - küçük kilit ikonu */}
                 <button
