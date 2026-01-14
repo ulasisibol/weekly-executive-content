@@ -708,16 +708,22 @@ export const getWeeks = async (): Promise<Week[]> => {
 
     const weeks = response.value.map((item: any) => mapListItemToWeek(item, schema));
     
-    // Eğer StartDate ile sıralama yapamadıysak, manuel sırala
-    if (!hasStartDate) {
-      weeks.sort((a: Week, b: Week) => {
-        const dateA = parseDate(a.startDate);
-        const dateB = parseDate(b.startDate);
-        const timeA = dateA ? dateA.getTime() : 0;
-        const timeB = dateB ? dateB.getTime() : 0;
-        return timeB - timeA;
-      });
-    }
+    // SIRALAMYI HAFTA NUMARASINA GÖRE YAP (en yüksek numara = en yeni = üstte)
+    weeks.sort((a: Week, b: Week) => {
+      // Title'dan hafta numarasını çıkar
+      const getWeekNumber = (title: string): number => {
+        const match = title.match(/^(\d+)\./);
+        return match ? parseInt(match[1], 10) : 0;
+      };
+      
+      const numA = getWeekNumber(a.title);
+      const numB = getWeekNumber(b.title);
+      
+      // En yüksek numara üstte (desc)
+      return numB - numA;
+    });
+    
+    console.log('📊 Haftalar sıralandı (en yeni üstte):', weeks.map((w: Week) => w.title));
     
     return weeks;
   } catch (error) {
@@ -1473,7 +1479,12 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
     // Mevcut haftaları al
     const existingWeeks = await getWeeks();
     
+    console.log('📅 createWeek: Mevcut haftalar analiz ediliyor...', 
+      existingWeeks.map(w => ({ title: w.title, startDate: w.startDate, endDate: w.endDate }))
+    );
+    
     let weekStart: Date;
+    let weekNumber = 1;
     
     if (startDate) {
       const inputDate = parseDate(startDate);
@@ -1482,24 +1493,39 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
       }
       weekStart = getWeekStartDate(inputDate);
     } else {
-      const lastWeek = existingWeeks.length > 0 
-        ? existingWeeks.reduce((latest, week) => {
-            const latestDate = parseDate(latest.endDate);
-            const weekDate = parseDate(week.endDate);
-            if (!latestDate || !weekDate) return latest;
-            return weekDate > latestDate ? week : latest;
-          })
-        : null;
-      
-      if (lastWeek) {
-        const lastEndDate = parseDate(lastWeek.endDate);
-        if (!lastEndDate) {
-          throw new Error(`Geçersiz son hafta bitiş tarihi: ${lastWeek.endDate}`);
+      // EN YÜKSEK HAFTA NUMARASINI BUL ve ondan sonraki haftayı hesapla
+      if (existingWeeks.length > 0) {
+        // Hafta numaralarını ve tarihlerini Title'dan parse et
+        const weekInfos = existingWeeks.map(w => {
+          const numMatch = w.title.match(/^(\d+)\./);
+          const weekNum = numMatch ? parseInt(numMatch[1], 10) : 0;
+          return { week: w, number: weekNum, endDate: w.endDate };
+        }).filter(info => info.number > 0);
+        
+        console.log('📋 Hafta bilgileri:', weekInfos.map(i => ({ num: i.number, endDate: i.endDate })));
+        
+        // En yüksek numaralı haftayı bul
+        const maxWeekInfo = weekInfos.reduce((max, curr) => 
+          curr.number > max.number ? curr : max
+        , { week: existingWeeks[0], number: 0, endDate: '' });
+        
+        weekNumber = maxWeekInfo.number + 1;
+        
+        // Son haftanın bitiş tarihinden +1 gün
+        const lastEndDate = parseDate(maxWeekInfo.endDate);
+        if (lastEndDate && !isNaN(lastEndDate.getTime())) {
+          weekStart = new Date(lastEndDate);
+          weekStart.setUTCDate(weekStart.getUTCDate() + 1);
+          console.log(`✅ Son hafta (${maxWeekInfo.number}.) bitiş: ${maxWeekInfo.endDate}, Yeni hafta başlangıç: ${getDateString(weekStart)}`);
+        } else {
+          // Fallback: Hafta numarasından hesapla (1. hafta = 12 Ocak 2026 varsayım)
+          const baseDate = new Date(Date.UTC(2026, 0, 12)); // 12 Ocak 2026 Pazartesi
+          weekStart = new Date(baseDate);
+          weekStart.setUTCDate(weekStart.getUTCDate() + ((weekNumber - 1) * 7));
+          console.warn(`⚠️ Son hafta tarihi geçersiz, hafta numarasından hesaplandı: ${getDateString(weekStart)}`);
         }
-        weekStart = new Date(lastEndDate);
-        weekStart.setUTCDate(weekStart.getUTCDate() + 1);
-        weekStart = getWeekStartDate(weekStart);
       } else {
+        // İlk hafta - bugünden başla
         const today = new Date();
         weekStart = getWeekStartDate(today);
       }
@@ -1509,6 +1535,9 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
       throw new Error('Geçersiz hafta başlangıç tarihi oluşturuldu');
     }
 
+    // Pazartesi gününe ayarla
+    weekStart = getWeekStartDate(weekStart);
+    
     const weekEnd = getWeekEndDate(weekStart);
     if (!weekEnd || isNaN(weekEnd.getTime())) {
       throw new Error('Geçersiz hafta bitiş tarihi oluşturuldu');
@@ -1516,15 +1545,6 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
 
     const startDateString = getDateString(weekStart);
     const endDateString = getDateString(weekEnd);
-    
-    let weekNumber = 1;
-    if (existingWeeks.length > 0) {
-      const weekNumbers = existingWeeks.map(w => {
-        const match = w.title.match(/^(\d+)\./);
-        return match ? parseInt(match[1], 10) : 0;
-      });
-      weekNumber = Math.max(...weekNumbers, 0) + 1;
-    }
     
     const startMonth = weekStart.toLocaleDateString('tr-TR', { month: 'long', day: 'numeric' });
     const endMonth = weekEnd.toLocaleDateString('tr-TR', { month: 'long', day: 'numeric' });
@@ -1537,6 +1557,13 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
       status: 'draft',
       days: []
     };
+
+    console.log('✨ Yeni hafta oluşturuluyor:', {
+      number: weekNumber,
+      title: newWeek.title,
+      startDate: newWeek.startDate,
+      endDate: newWeek.endDate
+    });
 
     const savedWeek = await saveWeek(newWeek);
     return savedWeek;
