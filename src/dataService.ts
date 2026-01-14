@@ -381,12 +381,23 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
     return null;
   };
   
-  // JSON alanlarını parse et
+  // JSON alanlarını parse et - Görselde Days yok, boş array döndür
   let days: Day[] = [];
   try {
-    const daysValue = findFieldValue('Days', ['DaysJson', 'days', 'daysJson']);
+    const daysValue = findFieldValue('Days', [
+      'DaysJson', 
+      'days', 
+      'daysJson',
+      'Days_x0020_Json',
+      'Gunler',
+      'Günler'
+    ]);
     if (daysValue) {
       days = typeof daysValue === 'string' ? JSON.parse(daysValue) : daysValue;
+    } else {
+      // Days alanı yoksa boş array - uygulama çalışmaya devam eder
+      console.warn('⚠️ Days alanı bulunamadı, boş array kullanılıyor');
+      days = [];
     }
   } catch (e) {
     console.error('Days parse hatası:', e);
@@ -396,14 +407,20 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
   // Alan değerlerini al
   const title = findFieldValue('Title', ['Başlık', 'title']) || `Hafta ${item.id}`;
   
-  // GÖREV 2: Akıllı Tarih Mapping - Tüm olası varyasyonları dene
-  let startDate = findFieldValue('StartDate', [
+  // GÖREV 3: Mapping Fonksiyonunu "Kör Uçuş" Moduna Al - Görseldeki gerçek sütun isimlerini kullan
+  // Görselde WeekDate var, StartDate/EndDate yok - WeekDate'i kullan
+  let startDate = findFieldValue('WeekDate', [
+    'Week_x0020_Date',
+    'Week Date',
+    'weekDate',
+    'StartDate', // Fallback
     'Start_x0020_Date', 
     'Start Date', 
     'startDate', 
     'StartDate0',
     'OData__StartDate',
     'OData__Start_x0020_Date',
+    'OData__WeekDate',
     'Başlangıç Tarihi',
     'BaslangicTarihi',
     'Baslangic',
@@ -416,13 +433,19 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
     'Sütun1'
   ]);
   
-  let endDate = findFieldValue('EndDate', [
+  // EndDate için de WeekDate'i dene (veya StartDate'ten 7 gün sonrasını hesapla)
+  let endDate = findFieldValue('WeekDate', [
+    'Week_x0020_Date',
+    'Week Date',
+    'weekDate',
+    'EndDate', // Fallback
     'End_x0020_Date', 
     'End Date', 
     'endDate', 
     'EndDate0',
     'OData__EndDate',
     'OData__End_x0020_Date',
+    'OData__WeekDate',
     'Bitiş Tarihi',
     'BitisTarihi',
     'Bitis',
@@ -434,6 +457,18 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
     'Column2',
     'Sütun2'
   ]);
+  
+  // Eğer WeekDate bulunduysa ve StartDate/EndDate yoksa, WeekDate'ten 7 günlük aralık oluştur
+  if (startDate && !endDate) {
+    const weekDateParsed = parseDate(startDate);
+    if (weekDateParsed) {
+      const weekStart = getWeekStartDate(weekDateParsed);
+      const weekEnd = getWeekEndDate(weekStart);
+      startDate = getDateString(weekStart);
+      endDate = getDateString(weekEnd);
+      console.log('📅 WeekDate bulundu, 7 günlük aralık oluşturuldu:', { startDate, endDate });
+    }
+  }
   
   // Eğer tarih alanları bulunamadıysa, varsayılan değer ata (bugün)
   const today = new Date();
@@ -705,20 +740,29 @@ const getListSchema = async (): Promise<any> => {
   try {
     const listId = await getListId();
     const siteId = await getSiteId();
-    const list = await graphRequest(`/sites/${siteId}/lists/${listId}?$expand=columns($select=name,displayName,readOnly,required,text,dateTime)`);
+    // Tüm sütun bilgilerini çek (text, dateTime, number, choice vb.)
+    const list = await graphRequest(`/sites/${siteId}/lists/${listId}?$expand=columns($select=name,displayName,readOnly,required,text,dateTime,number,choice,columnGroup)`);
     cachedListSchema = list;
     
-    // GÖREV 2: Gerçek Sütun İsimlerini Listele (Source of Truth)
+    // GÖREV 2: Gerçek Sütun İsimlerini Listele (Source of Truth) - Detaylı Analiz
     if (list?.columns && Array.isArray(list.columns)) {
-      console.log('📋 TÜM LISTE SÜTUNLARI (Internal Names):', 
-        list.columns.map((c: any) => ({ 
-          DisplayName: c.displayName, 
-          Name: c.name, // <-- Internal Name bu!
-          Type: c.columnGroup || (c.text ? 'Text' : c.dateTime ? 'DateTime' : 'Unknown'),
-          ReadOnly: c.readOnly,
-          Required: c.required
-        }))
-      );
+      console.log('📋 ----------------------------------------------------');
+      console.log('📋 SHAREPOINT LİSTE SÜTUN ANALİZİ (Internal Names)');
+      console.log('📋 ----------------------------------------------------');
+      
+      const columnReport = list.columns.map((c: any) => ({
+        'Görünen İsim (Display)': c.displayName || 'N/A',
+        'Sistem İsmi (Internal - Kodda bunu kullan!)': c.name || 'N/A',
+        'Türü': c.text ? 'Metin' : (c.dateTime ? 'Tarih' : (c.number ? 'Sayı' : (c.choice ? 'Seçim' : 'Diğer'))),
+        'ReadOnly': c.readOnly ? 'Evet' : 'Hayır',
+        'Required': c.required ? 'Evet' : 'Hayır'
+      }));
+      
+      console.table(columnReport); // Tablo olarak basar, çok okunaklıdır
+      console.log('📋 ----------------------------------------------------');
+      
+      // Ayrıca JSON formatında da logla (daha detaylı)
+      console.log('📋 TÜM SÜTUN DETAYLARI (JSON):', JSON.stringify(list.columns, null, 2));
     }
     
     return list;
