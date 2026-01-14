@@ -1,6 +1,30 @@
 import { Day } from '../types';
-import { Video, Trash2 } from 'lucide-react';
+import { Video, Trash2, Image as ImageIcon } from 'lucide-react';
 import AuthenticatedVideoPlayer from './AuthenticatedVideoPlayer';
+import AuthenticatedImagePlayer from './AuthenticatedImagePlayer';
+
+// URL'den dosya tipini belirle (video mu görsel mi?)
+const isImageUrl = (url: string): boolean => {
+  if (!url) return false;
+  const lowerUrl = url.toLowerCase();
+  return lowerUrl.includes('.jpg') || 
+         lowerUrl.includes('.jpeg') || 
+         lowerUrl.includes('.png') || 
+         lowerUrl.includes('.webp') || 
+         lowerUrl.includes('.gif') ||
+         lowerUrl.includes('image/');
+};
+
+const isVideoUrl = (url: string): boolean => {
+  if (!url) return false;
+  const lowerUrl = url.toLowerCase();
+  return lowerUrl.includes('.mp4') || 
+         lowerUrl.includes('.mov') || 
+         lowerUrl.includes('.avi') || 
+         lowerUrl.includes('.webm') || 
+         lowerUrl.includes('.mkv') ||
+         lowerUrl.includes('video/');
+};
 
 interface DayContentProps {
   day: Day;
@@ -57,20 +81,38 @@ export default function DayContent({ day, isAdmin = false, onRemoveVideo }: DayC
                         aspectRatio: '9/16'
                       }}
                     >
-                      {/* Kimlik doğrulamalı video oynatıcı - SharePoint URL'leri için (Lazy loading) */}
+                      {/* Video veya Görsel - Tip kontrolü */}
                       {story?.url ? (
-                        <AuthenticatedVideoPlayer
-                          url={story.url}
-                          controls
-                          className="w-full h-full object-contain"
-                          preload="none"
-                          onError={(error) => {
-                            console.error('Video yükleme hatası:', story.url, error);
-                          }}
-                        />
+                        isImageUrl(story.url) ? (
+                          // Görsel için AuthenticatedImagePlayer (SharePoint kimlik doğrulaması)
+                          <AuthenticatedImagePlayer
+                            url={story.url}
+                            alt="Hikaye görseli"
+                            className="w-full h-full object-cover"
+                            onError={(error) => {
+                              console.error('Görsel yükleme hatası:', story.url, error);
+                            }}
+                          />
+                        ) : isVideoUrl(story.url) ? (
+                          // Video için AuthenticatedVideoPlayer
+                          <AuthenticatedVideoPlayer
+                            url={story.url}
+                            controls
+                            className="w-full h-full object-contain"
+                            preload="none"
+                            onError={(error) => {
+                              console.error('Video yükleme hatası:', story.url, error);
+                            }}
+                          />
+                        ) : (
+                          // Bilinmeyen tip
+                          <div className="w-full h-full flex items-center justify-center bg-gray-800 text-white text-sm">
+                            Desteklenmeyen dosya tipi
+                          </div>
+                        )
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-gray-800 text-white text-sm">
-                          Video URL bulunamadı
+                          Medya URL bulunamadı
                         </div>
                       )}
                     </div>
@@ -102,20 +144,38 @@ export default function DayContent({ day, isAdmin = false, onRemoveVideo }: DayC
                         className="relative bg-gray-900 rounded-lg overflow-hidden"
                         style={{ aspectRatio: '4/5' }}
                       >
-                        {/* Kimlik doğrulamalı video oynatıcı - SharePoint URL'leri için (Lazy loading) */}
+                        {/* Video veya Görsel - Tip kontrolü */}
                         {post?.url ? (
-                          <AuthenticatedVideoPlayer
-                            url={post.url}
-                            controls
-                            className="w-full h-full object-cover"
-                            preload="none"
-                            onError={(error) => {
-                              console.error('Video yükleme hatası:', post.url, error);
-                            }}
-                          />
+                          isImageUrl(post.url) ? (
+                            // Görsel için AuthenticatedImagePlayer (SharePoint kimlik doğrulaması)
+                            <AuthenticatedImagePlayer
+                              url={post.url}
+                              alt="Post görseli"
+                              className="w-full h-full object-cover"
+                              onError={(error) => {
+                                console.error('Görsel yükleme hatası:', post.url, error);
+                              }}
+                            />
+                          ) : isVideoUrl(post.url) ? (
+                            // Video için AuthenticatedVideoPlayer
+                            <AuthenticatedVideoPlayer
+                              url={post.url}
+                              controls
+                              className="w-full h-full object-cover"
+                              preload="none"
+                              onError={(error) => {
+                                console.error('Video yükleme hatası:', post.url, error);
+                              }}
+                            />
+                          ) : (
+                            // Bilinmeyen tip
+                            <div className="w-full h-full flex items-center justify-center bg-gray-800 text-white text-sm">
+                              Desteklenmeyen dosya tipi
+                            </div>
+                          )
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-gray-800 text-white text-sm">
-                            Video URL bulunamadı
+                            Medya URL bulunamadı
                           </div>
                         )}
                         {isAdmin && onRemoveVideo && (
