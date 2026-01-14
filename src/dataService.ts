@@ -1627,55 +1627,91 @@ export const ensureNextWeekExists = async (): Promise<Week | null> => {
   }
 };
 
-// SORUN 2 ÇÖZÜMÜ: Klasör kontrolü ve oluşturma
+// ADIM 1: Klasör Garantisi - Klasör kontrolü ve oluşturma (GARANTİLİ MOD)
 const ensureFolderExists = async (folderPath: string): Promise<void> => {
+  const driveId = await getDriveId();
+  const siteId = await getSiteId();
+  
+  console.log(`🔍 Klasör kontrol ediliyor: ${folderPath}`);
+  
+  // Klasörün var olup olmadığını kontrol et
+  let folderExists = false;
   try {
-    const driveId = await getDriveId();
-    const siteId = await getSiteId();
+    const folderCheck = await graphRequest(`/sites/${siteId}/drives/${driveId}/root:/${folderPath}:`);
+    if (folderCheck && (folderCheck.folder || folderCheck['@microsoft.graph.downloadUrl'])) {
+      folderExists = true;
+      console.log(`✅ Klasör zaten mevcut: ${folderPath}`);
+    }
+  } catch (error: any) {
+    // 404 hatası = klasör yok
+    const is404 = error?.status === 404 || 
+                  error?.message?.includes('404') || 
+                  error?.message?.includes('ItemNotFound') ||
+                  (error?.error?.code && (error.error.code.includes('itemNotFound') || error.error.code.includes('notFound')));
     
-    // Klasörün var olup olmadığını kontrol et
+    if (!is404) {
+      // 404 dışında bir hata - logla ve fırlat
+      console.error(`❌ Klasör kontrolü hatası:`, error);
+      throw new Error(`Klasör kontrolü başarısız: ${error?.message || 'Bilinmeyen hata'}`);
+    }
+  }
+  
+  // Klasör yoksa oluştur
+  if (!folderExists) {
+    console.log(`📁 Klasör bulunamadı, oluşturuluyor: ${folderPath}`);
+    
     try {
-      const folderCheck = await graphRequest(`/sites/${siteId}/drives/${driveId}/root:/${folderPath}:`);
-      if (folderCheck && folderCheck.folder) {
-        console.log(`✅ Klasör zaten mevcut: ${folderPath}`);
-        return; // Klasör var, devam et
-      }
-    } catch (error: any) {
-      // 404 hatası = klasör yok, oluştur
-      const is404 = error?.status === 404 || 
-                    error?.message?.includes('404') || 
-                    error?.message?.includes('ItemNotFound') ||
-                    (error?.error?.code && error.error.code.includes('itemNotFound'));
+      // Klasör oluştur - SharePoint'te klasör oluşturma için doğru endpoint
+      const createResponse = await graphRequest(
+        `/sites/${siteId}/drives/${driveId}/root/children`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            name: folderPath,
+            folder: {},
+            '@microsoft.graph.conflictBehavior': 'rename'
+          })
+        }
+      );
       
-      if (is404) {
-        console.log(`📁 Klasör bulunamadı, oluşturuluyor: ${folderPath}`);
+      // Klasör oluşturulduktan sonra tekrar kontrol et
+      if (createResponse && createResponse.id) {
+        console.log(`✅ Klasör başarıyla oluşturuldu: ${folderPath} (ID: ${createResponse.id})`);
         
+        // Doğrulama: Klasörün gerçekten oluştuğunu kontrol et
         try {
-          // Klasör oluştur - SharePoint'te klasör oluşturma için doğru endpoint
-          await graphRequest(
-            `/sites/${siteId}/drives/${driveId}/root/children`,
-            {
-              method: 'POST',
-              body: JSON.stringify({
-                name: folderPath,
-                folder: {},
-                '@microsoft.graph.conflictBehavior': 'rename'
-              })
-            }
-          );
-          console.log(`✅ Klasör oluşturuldu: ${folderPath}`);
-        } catch (createError: any) {
-          console.warn(`⚠️ Klasör oluşturma hatası (devam ediliyor):`, createError);
-          // Hata olsa bile devam et - belki klasör zaten var veya yetki yok
+          const verifyCheck = await graphRequest(`/sites/${siteId}/drives/${driveId}/root:/${folderPath}:`);
+          if (verifyCheck && (verifyCheck.folder || verifyCheck.id)) {
+            console.log(`✅ Klasör doğrulandı: ${folderPath}`);
+          } else {
+            throw new Error('Klasör oluşturuldu ancak doğrulanamadı');
+          }
+        } catch (verifyError: any) {
+          console.warn(`⚠️ Klasör doğrulama hatası (devam ediliyor):`, verifyError);
+          // Doğrulama hatası olsa bile devam et - belki klasör oluştu
         }
       } else {
-        // Başka bir hata, logla ama devam et
-        console.warn(`⚠️ Klasör kontrolü hatası (devam ediliyor):`, error);
+        throw new Error('Klasör oluşturma yanıtı geçersiz');
       }
+    } catch (createError: any) {
+      // Klasör oluşturma hatası - kritik hata, fırlat
+      console.error(`❌ Klasör oluşturma hatası:`, createError);
+      
+      // Eğer "zaten var" hatası ise, devam et
+      const isConflict = createError?.status === 409 || 
+                         createError?.message?.includes('already exists') ||
+                         createError?.message?.includes('Conflict') ||
+                         (createError?.error?.code && createError.error.code.includes('nameAlreadyExists'));
+      
+      if (isConflict) {
+        console.log(`ℹ️ Klasör zaten mevcut (çakışma): ${folderPath}`);
+        // Çakışma = klasör zaten var, devam et
+        return;
+      }
+      
+      // Diğer hatalar için fırlat
+      throw new Error(`Klasör oluşturulamadı: ${createError?.message || 'Bilinmeyen hata'}`);
     }
-  } catch (error) {
-    console.error('Klasör kontrolü/oluşturma hatası:', error);
-    // Hata olsa bile devam et - belki klasör zaten var
   }
 };
 
@@ -1710,30 +1746,36 @@ export const uploadVideo = async (file: File | null | undefined): Promise<string
     const driveId = await getDriveId();
     const siteId = await getSiteId();
     
-    // ADIM 1: Klasör garantisi - Klasör kontrolü ve oluşturma
+    // ADIM 1: Klasör garantisi - Klasör kontrolü ve oluşturma (GARANTİLİ MOD)
+    console.log('🔒 ADIM 1: Klasör garantisi başlatılıyor...');
     await ensureFolderExists('videos');
+    console.log('✅ ADIM 1: Klasör garantisi tamamlandı');
     
     // ADIM 2: Benzersiz dosya adı - Timestamp + Random + Temizlenmiş dosya adı
     const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const timestamp = Date.now();
     const randomSuffix = Math.random().toString(36).substring(2, 8); // 6 karakterlik random string
-    const uniqueFileName = `${timestamp}-${randomSuffix}-${sanitizedFileName}`;
+    const uniqueFileName = `${timestamp}_${randomSuffix}_${sanitizedFileName}`;
     const fileName = `videos/${uniqueFileName}`;
     
-    console.log('📤 Video yükleniyor:', fileName);
+    console.log('📤 ADIM 2: Video yükleme başlatılıyor:', fileName);
     console.log('🔐 Benzersiz dosya adı (çakışma önleme):', uniqueFileName);
     
     // ADIM 3: Upload session oluştur - conflictBehavior: 'rename' kullan (çakışma önleme)
-    // Not: Graph API'de createUploadSession için iki format desteklenir:
-    // 1. Direkt format: { "@microsoft.graph.conflictBehavior": "rename", "name": "..." }
-    // 2. Item wrapper: { "item": { "@microsoft.graph.conflictBehavior": "rename", "name": "..." } }
-    // Her iki format da çalışır, ancak direkt format daha yaygın kullanılır.
-    console.log('🔧 Upload session oluşturuluyor...', {
+    // Microsoft Graph API dokümantasyonuna göre, createUploadSession için payload formatı:
+    // { "@microsoft.graph.conflictBehavior": "rename", "name": "..." }
+    // veya
+    // { "item": { "@microsoft.graph.conflictBehavior": "rename", "name": "..." } }
+    // Her iki format da desteklenir, ancak direkt format daha yaygın kullanılır.
+    console.log('🔧 ADIM 3: Upload session oluşturuluyor...', {
       fileName: uniqueFileName,
       fullPath: fileName,
-      conflictBehavior: 'rename'
+      conflictBehavior: 'rename',
+      driveId: driveId.substring(0, 20) + '...',
+      siteId: siteId.substring(0, 20) + '...'
     });
     
+    // Upload session oluştur - direkt format kullan
     const uploadSessionResponse = await graphRequest(
       `/sites/${siteId}/drives/${driveId}/root:/${fileName}:/createUploadSession`,
       {
@@ -1745,13 +1787,23 @@ export const uploadVideo = async (file: File | null | undefined): Promise<string
       }
     );
 
-    const uploadUrl = uploadSessionResponse.uploadUrl;
-    if (!uploadUrl) {
-      console.error('❌ Upload session yanıtı:', uploadSessionResponse);
-      throw new Error('Upload session oluşturulamadı - uploadUrl bulunamadı');
+    // Upload session yanıtını kontrol et
+    if (!uploadSessionResponse || !uploadSessionResponse.uploadUrl) {
+      console.error('❌ Upload session oluşturma hatası - Yanıt:', uploadSessionResponse);
+      
+      // Klasörün varlığını tekrar kontrol et
+      try {
+        const folderRecheck = await graphRequest(`/sites/${siteId}/drives/${driveId}/root:/videos:`);
+        console.log('ℹ️ Klasör kontrolü (upload session hatası sonrası):', folderRecheck ? 'Mevcut' : 'Bulunamadı');
+      } catch (recheckError) {
+        console.error('❌ Klasör kontrolü hatası (upload session hatası sonrası):', recheckError);
+      }
+      
+      throw new Error('Upload session oluşturulamadı - uploadUrl bulunamadı. Klasör kontrolü yapıldı.');
     }
     
-    console.log('✅ Upload session oluşturuldu:', uploadUrl.substring(0, 100) + '...');
+    const uploadUrl = uploadSessionResponse.uploadUrl;
+    console.log('✅ ADIM 3: Upload session başarıyla oluşturuldu:', uploadUrl.substring(0, 100) + '...');
 
     // 2. Dosyayı parça parça yükle (4MB chunk size)
     const chunkSize = 4 * 1024 * 1024; // 4MB
@@ -1822,8 +1874,31 @@ export const uploadVideo = async (file: File | null | undefined): Promise<string
     }
 
     throw new Error('Video URL alınamadı - webUrl ve downloadUrl bulunamadı');
-  } catch (error) {
-    console.error('Video yükleme hatası:', error);
-    throw error;
+  } catch (error: any) {
+    console.error('❌ Video yükleme hatası:', error);
+    
+    // Kullanıcı dostu hata mesajları
+    if (error?.status === 403 || error?.message?.includes('403') || error?.message?.includes('Forbidden')) {
+      const friendlyMessage = 'Video yükleme izni reddedildi. Klasör oluşturma veya dosya yazma yetkisi eksik olabilir.';
+      console.error('🔒 403 Forbidden - Detay:', error);
+      throw new Error(friendlyMessage);
+    }
+    
+    if (error?.status === 404 || error?.message?.includes('404') || error?.message?.includes('ItemNotFound')) {
+      const friendlyMessage = 'Klasör bulunamadı. Klasör oluşturma işlemi başarısız olmuş olabilir.';
+      console.error('📁 404 Not Found - Detay:', error);
+      throw new Error(friendlyMessage);
+    }
+    
+    if (error?.message?.includes('Request was cancelled by event received') || 
+        error?.message?.includes('event received')) {
+      const friendlyMessage = 'Dosya yükleme işlemi SharePoint tarafından iptal edildi. Klasör eksikliği veya dosya çakışması olabilir.';
+      console.error('🚫 Event Received - Detay:', error);
+      throw new Error(friendlyMessage);
+    }
+    
+    // Genel hata mesajı
+    const errorMessage = error?.message || 'Bilinmeyen hata';
+    throw new Error(`Video yükleme başarısız: ${errorMessage}`);
   }
 };
