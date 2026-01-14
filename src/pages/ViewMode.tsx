@@ -21,7 +21,9 @@ export default function ViewMode() {
         await ensureNextWeekExists();
         const loadedWeeks = await getWeeks();
         
-        console.log('📅 Yüklenen haftalar (ViewMode - Sıralama öncesi):', {
+        // GÖREV 1 DÜZELTME: Tüm haftaları göster (published, draft, hepsi)
+        // Kullanıcı görüntüleme modunda tüm haftaları görebilmeli
+        console.log('📅 Yüklenen haftalar (ViewMode):', {
           toplamHafta: loadedWeeks.length,
           haftalar: loadedWeeks.map(w => ({ 
             id: w.id, 
@@ -32,79 +34,14 @@ export default function ViewMode() {
           }))
         });
         
-        // ÖNEMLİ: Bugüne göre sıralama - Bugünü içeren hafta en üstte
-        const today = new Date();
-        today.setHours(0, 0, 0, 0); // Sadece tarih, saat bilgisi yok
+        // Tüm haftaları göster (status filtresi yok)
+        setAllWeeks(loadedWeeks);
+        setWeeks(loadedWeeks);
         
-        const sortedWeeks = [...loadedWeeks].sort((a, b) => {
-          // Her hafta için bugüne olan "mesafe" hesapla
-          const getDistanceToToday = (week: Week): number => {
-            if (!week.startDate || !week.endDate) return Infinity; // Geçersiz tarihler en sona
-            
-            try {
-              const weekStart = new Date(week.startDate + 'T00:00:00Z');
-              const weekEnd = new Date(week.endDate + 'T00:00:00Z');
-              
-              // Bugün bu hafta içinde mi?
-              if (today >= weekStart && today <= weekEnd) {
-                return 0; // Bugünü içeren hafta = 0 (en üstte)
-              }
-              
-              // Hafta gelecekte mi?
-              if (today < weekStart) {
-                // Hafta başına kadar olan gün sayısı (pozitif)
-                return Math.ceil((weekStart.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-              }
-              
-              // Hafta geçmişte mi?
-              if (today > weekEnd) {
-                // Hafta bitişinden bugüne kadar olan gün sayısı (negatif)
-                return -Math.ceil((today.getTime() - weekEnd.getTime()) / (1000 * 60 * 60 * 24));
-              }
-              
-              return 0;
-            } catch (error) {
-              console.error('❌ Tarih hesaplama hatası:', error, week);
-              return Infinity;
-            }
-          };
-          
-          const distanceA = getDistanceToToday(a);
-          const distanceB = getDistanceToToday(b);
-          
-          // Önce bugüne olan mesafeye göre sırala
-          if (Math.abs(distanceA) !== Math.abs(distanceB)) {
-            return Math.abs(distanceA) - Math.abs(distanceB);
-          }
-          
-          // Eşit mesafedeyse, gelecek haftaları önce göster
-          return distanceB - distanceA;
-        });
-        
-        console.log('🎯 Bugüne göre sıralanmış haftalar:', {
-          bugun: today.toISOString().split('T')[0],
-          haftalar: sortedWeeks.map(w => {
-            const weekStart = w.startDate ? new Date(w.startDate + 'T00:00:00Z') : null;
-            const weekEnd = w.endDate ? new Date(w.endDate + 'T00:00:00Z') : null;
-            const isCurrentWeek = weekStart && weekEnd && today >= weekStart && today <= weekEnd;
-            
-            return {
-              title: w.title,
-              startDate: w.startDate,
-              endDate: w.endDate,
-              bugunuIcerir: isCurrentWeek ? '✅ AKTİF' : '⏳'
-            };
-          })
-        });
-        
-        // Sıralanmış haftaları kaydet
-        setAllWeeks(sortedWeeks);
-        setWeeks(sortedWeeks);
-        
-        if (sortedWeeks.length > 0) {
-          // Bugünü içeren haftayı seç (en üstteki)
-          setSelectedWeekId(sortedWeeks[0].id);
-          console.log('✅ Aktif hafta seçildi:', sortedWeeks[0].title);
+        if (loadedWeeks.length > 0) {
+          // En son eklenen (ilk sıradaki) haftayı seç
+          setSelectedWeekId(loadedWeeks[0].id);
+          console.log('✅ İlk hafta seçildi:', loadedWeeks[0].title);
         }
       } catch (error) {
         console.error('❌ Haftalar yüklenirken hata:', error);
