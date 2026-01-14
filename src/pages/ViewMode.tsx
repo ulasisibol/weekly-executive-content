@@ -12,6 +12,7 @@ export default function ViewMode() {
   const [selectedWeekId, setSelectedWeekId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(''); // Tarih filtresi
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobil sidebar toggle
+  const [isLoading, setIsLoading] = useState(true); // Loading state
   const mobileDateInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
@@ -19,6 +20,7 @@ export default function ViewMode() {
   useEffect(() => {
     const loadData = async () => {
       try {
+        setIsLoading(true); // Loading başlat
         // ViewMode'da otomatik hafta oluşturmayı tetikle
         await ensureNextWeekExists();
         const loadedWeeks = await getWeeks();
@@ -47,6 +49,8 @@ export default function ViewMode() {
         }
       } catch (error) {
         console.error('❌ Haftalar yüklenirken hata:', error);
+      } finally {
+        setIsLoading(false); // Loading bitir
       }
     };
     loadData();
@@ -136,7 +140,15 @@ export default function ViewMode() {
         onClose={() => setIsSidebarOpen(false)}
       />
 
-      {selectedWeek || weeks.length > 0 ? (
+      {/* Loading State */}
+      {isLoading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-[#0078d4] mb-4"></div>
+            <p className="text-gray-500 text-lg">Yükleniyor...</p>
+          </div>
+        </div>
+      ) : selectedWeek || weeks.length > 0 ? (
         <div className="flex-1 flex flex-col">
           <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 sm:py-4 flex flex-col gap-3">
             {/* Üst Satır: Hamburger Menü, Tarih ve Yönetici Butonu */}
@@ -292,10 +304,12 @@ export default function ViewMode() {
       ) : (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <p className="text-gray-500 text-lg">Henüz yayınlanmış hafta yok</p>
+            <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500 text-lg">Henüz hafta yok</p>
+            <p className="text-gray-400 text-sm mt-2 mb-4">Yönetici modundan yeni hafta oluşturabilirsiniz</p>
             <button
               onClick={() => navigate('/admin')}
-              className="mt-4 px-6 py-2.5 bg-[#0078d4] text-white rounded-lg hover:bg-[#106ebe] transition-colors"
+              className="px-6 py-2.5 bg-[#0078d4] text-white rounded-lg hover:bg-[#106ebe] transition-colors"
             >
               Yönetici Moduna Git
             </button>
