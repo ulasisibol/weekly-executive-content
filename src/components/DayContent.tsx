@@ -1,5 +1,6 @@
 import { Day } from '../types';
 import { Video, Trash2 } from 'lucide-react';
+import AuthenticatedVideoPlayer from './AuthenticatedVideoPlayer';
 
 interface DayContentProps {
   day: Day;
@@ -56,20 +57,17 @@ export default function DayContent({ day, isAdmin = false, onRemoveVideo }: DayC
                         aspectRatio: '9/16'
                       }}
                     >
-                      {/* GÖREV 3: Defensive Coding - Video URL kontrolü */}
+                      {/* Kimlik doğrulamalı video oynatıcı - SharePoint URL'leri için */}
                       {story?.url ? (
-                        <video
-                          src={story.url}
+                        <AuthenticatedVideoPlayer
+                          url={story.url}
                           controls
                           className="w-full h-full object-contain"
                           preload="metadata"
-                          onError={(e) => {
-                            console.error('Video yükleme hatası:', story.url);
-                            (e.target as HTMLVideoElement).style.display = 'none';
+                          onError={(error) => {
+                            console.error('Video yükleme hatası:', story.url, error);
                           }}
-                        >
-                          Tarayıcınız video etiketini desteklemiyor.
-                        </video>
+                        />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-gray-800 text-white text-sm">
                           Video URL bulunamadı
@@ -104,20 +102,17 @@ export default function DayContent({ day, isAdmin = false, onRemoveVideo }: DayC
                         className="relative bg-gray-900 rounded-lg overflow-hidden"
                         style={{ aspectRatio: '4/5' }}
                       >
-                        {/* GÖREV 3: Defensive Coding - Video URL kontrolü */}
+                        {/* Kimlik doğrulamalı video oynatıcı - SharePoint URL'leri için */}
                         {post?.url ? (
-                          <video
-                            src={post.url}
+                          <AuthenticatedVideoPlayer
+                            url={post.url}
                             controls
                             className="w-full h-full object-cover"
                             preload="metadata"
-                            onError={(e) => {
-                              console.error('Video yükleme hatası:', post.url);
-                              (e.target as HTMLVideoElement).style.display = 'none';
+                            onError={(error) => {
+                              console.error('Video yükleme hatası:', post.url, error);
                             }}
-                          >
-                            Tarayıcınız video etiketini desteklemiyor.
-                          </video>
+                          />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center bg-gray-800 text-white text-sm">
                             Video URL bulunamadı

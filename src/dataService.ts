@@ -1910,3 +1910,65 @@ export const uploadVideo = async (file: File | null | undefined): Promise<string
     throw new Error(`Video yükleme başarısız: ${errorMessage}`);
   }
 };
+
+// SharePoint'ten dosya içeriğini Blob olarak getir (kimlik doğrulamalı)
+// Bu fonksiyon, SharePoint URL'lerini doğrudan video src'de kullanmak yerine
+// kimlik doğrulamalı blob URL oluşturmak için kullanılır
+export const getFileContentAsBlob = async (fileName: string): Promise<Blob> => {
+  try {
+    // Defensive Coding: Dosya adı validasyonu
+    if (!fileName || typeof fileName !== 'string' || fileName.trim() === '') {
+      throw new Error('Geçersiz dosya adı');
+    }
+
+    const siteId = await getSiteId();
+    const driveId = await getDriveId();
+    
+    // Dosya adını temizle (path'ten sadece dosya adını al)
+    // Örnek: "videos/1768377426498_wnll26_Cuma.mp4" -> "1768377426498_wnll26_Cuma.mp4"
+    const cleanFileName = fileName.includes('/') 
+      ? fileName.split('/').pop() || fileName 
+      : fileName;
+    
+    const filePath = `videos/${cleanFileName}`;
+    
+    console.log('📥 Dosya içeriği blob olarak getiriliyor:', filePath);
+    
+    // Graph API'den dosya içeriğini blob olarak al
+    const token = await getAccessToken();
+    const response = await fetch(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root:/${filePath}:/content`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Prefer': 'HonorNonIndexedQueriesWarningMayFailRandomly'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Dosya içeriği alınamadı:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText,
+        filePath
+      });
+      throw new Error(`Dosya içeriği alınamadı: ${response.status} - ${errorText}`);
+    }
+
+    // Response'u blob olarak al
+    const blob = await response.blob();
+    console.log('✅ Dosya blob olarak alındı:', {
+      fileName: cleanFileName,
+      blobSize: blob.size,
+      blobType: blob.type
+    });
+    
+    return blob;
+  } catch (error) {
+    console.error('❌ getFileContentAsBlob hatası:', error);
+    throw error;
+  }
+};
