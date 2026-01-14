@@ -103,15 +103,34 @@ export default function ViewMode() {
       bulunanHaftalar: filteredWeeks.map(w => w.title)
     });
 
+    // Eğer tarih bulunamadıysa, uyarı göster ve son haftaya dön
+    if (filteredWeeks.length === 0) {
+      console.log('⚠️ Seçilen tarihte hafta bulunamadı, son haftaya dönülüyor');
+      
+      // Tüm haftaları göster
+      setWeeks(allWeeks);
+      
+      // Son eklenen haftaya dön (en üstteki - ilk sıradaki)
+      if (allWeeks.length > 0) {
+        setSelectedWeekId(allWeeks[0].id);
+        console.log('✅ Son haftaya dönüldü:', allWeeks[0].title);
+      }
+      
+      // Tarih filtresini temizle
+      setSelectedDate('');
+      
+      // Kullanıcıya bilgi ver (3 saniye sonra kaybolacak)
+      alert(`Girdiğiniz tarihe ait bir hafta bulunamadı. Son eklenen haftaya dönülüyor.`);
+      
+      return;
+    }
+    
     setWeeks(filteredWeeks);
     
-    // Filtreleme sonrası ilk haftayı seç veya seçimi temizle
+    // Filtreleme sonrası ilk haftayı seç
     if (filteredWeeks.length > 0) {
       setSelectedWeekId(filteredWeeks[0].id);
       console.log('✅ Filtrelenen hafta seçildi:', filteredWeeks[0].title);
-    } else {
-      setSelectedWeekId(null);
-      console.log('⚠️ Seçilen tarihte hafta bulunamadı');
     }
   }, [selectedDate, allWeeks, selectedWeekId]);
 
