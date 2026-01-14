@@ -249,17 +249,28 @@ export default function ViewMode() {
               )}
 
               {/* Hafta Navigasyonu ve Mobil Tarih Seçme */}
-              <div className="flex gap-2 items-center">
-                <button
-                  onClick={handlePreviousWeek}
-                  disabled={currentIndex === 0}
-                  className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-                  title="Önceki Hafta"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
+              <div className="flex gap-2 items-center justify-between w-full">
+                {/* Sol taraf: Navigasyon butonları */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handlePreviousWeek}
+                    disabled={currentIndex === 0}
+                    className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                    title="Önceki Hafta"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={handleNextWeek}
+                    disabled={currentIndex === weeks.length - 1}
+                    className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                    title="Sonraki Hafta"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
                 
-                {/* Mobilde takvim ikonu - tarih seçme (navigasyon butonlarının yanında) */}
+                {/* Sağ taraf: Mobilde takvim ikonu - tarih seçme */}
                 <div className="lg:hidden relative">
                   <input
                     ref={mobileDateInputRef}
@@ -287,15 +298,6 @@ export default function ViewMode() {
                     )}
                   </div>
                 </div>
-                
-                <button
-                  onClick={handleNextWeek}
-                  disabled={currentIndex === weeks.length - 1}
-                  className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-                  title="Sonraki Hafta"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
               </div>
             </div>
           </div>
