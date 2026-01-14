@@ -714,8 +714,14 @@ const getListSchema = async (): Promise<any> => {
   }
 };
 
-// Eksik alanları SharePoint listesine ekle
+// Eksik alanları SharePoint listesine ekle - Sadece bir kez çalışır
+let fieldsCheckDone = false;
 const ensureRequiredFields = async (): Promise<void> => {
+  // Sadece bir kez kontrol et - tekrar tekrar deneme yapma
+  if (fieldsCheckDone) {
+    return;
+  }
+  
   try {
     const listId = await getListId();
     const siteId = await getSiteId();
@@ -723,6 +729,7 @@ const ensureRequiredFields = async (): Promise<void> => {
     
     if (!schema?.columns) {
       console.warn('Liste şeması alınamadı, alan kontrolü yapılamıyor');
+      fieldsCheckDone = true; // Bir kez denedik, tekrar deneme
       return;
     }
     
@@ -756,6 +763,12 @@ const ensureRequiredFields = async (): Promise<void> => {
       });
     }
     
+    // Eğer eklenmesi gereken alan yoksa, işaretle ve çık
+    if (fieldsToAdd.length === 0) {
+      fieldsCheckDone = true;
+      return;
+    }
+    
     // Eksik alanları ekle
     for (const field of fieldsToAdd) {
       try {
@@ -764,6 +777,7 @@ const ensureRequiredFields = async (): Promise<void> => {
         let fieldDefinition: any;
         
         if (field.type === 'DateTime') {
+          // Graph API DateTime alanı için doğru format
           fieldDefinition = {
             '@odata.type': '#microsoft.graph.dateTimeColumn',
             name: field.name,
@@ -773,6 +787,7 @@ const ensureRequiredFields = async (): Promise<void> => {
             }
           };
         } else if (field.type === 'Note') {
+          // Graph API Note (çok satırlı metin) için doğru format
           fieldDefinition = {
             '@odata.type': '#microsoft.graph.textColumn',
             name: field.name,
@@ -790,26 +805,32 @@ const ensureRequiredFields = async (): Promise<void> => {
           `/sites/${siteId}/lists/${listId}/columns`,
           {
             method: 'POST',
-            body: JSON.stringify(fieldDefinition)
+            body: JSON.stringify(fieldDefinition),
+            headers: {
+              'Content-Type': 'application/json'
+            }
           }
         );
         
-        console.log(`Alan eklendi: ${field.displayName}`);
+        console.log(`✅ Alan başarıyla eklendi: ${field.displayName}`);
         
         // Cache'i temizle
         cachedListSchema = null;
       } catch (error: any) {
-        console.error(`Alan eklenirken hata (${field.displayName}):`, error);
-        // Devam et, diğer alanları eklemeyi dene
+        console.error(`❌ Alan eklenirken hata (${field.displayName}):`, error);
+        // Hata aldıysak, bir daha deneme - işaretle ve çık
+        fieldsCheckDone = true;
+        return;
       }
     }
     
-    if (fieldsToAdd.length > 0) {
-      console.log(`${fieldsToAdd.length} alan ekleme işlemi tamamlandı`);
-    }
+    // Başarılı olduysa işaretle
+    fieldsCheckDone = true;
+    console.log(`✅ ${fieldsToAdd.length} alan ekleme işlemi tamamlandı`);
   } catch (error) {
     console.error('Alan kontrolü/ekleme hatası:', error);
-    // Hata olsa bile devam et
+    // Hata olsa bile bir daha deneme
+    fieldsCheckDone = true;
   }
 };
 
