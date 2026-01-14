@@ -57,13 +57,13 @@ export default function DayContent({ day, isAdmin = false, onRemoveVideo }: DayC
                         aspectRatio: '9/16'
                       }}
                     >
-                      {/* Kimlik doğrulamalı video oynatıcı - SharePoint URL'leri için */}
+                      {/* Kimlik doğrulamalı video oynatıcı - SharePoint URL'leri için (Lazy loading) */}
                       {story?.url ? (
                         <AuthenticatedVideoPlayer
                           url={story.url}
                           controls
                           className="w-full h-full object-contain"
-                          preload="metadata"
+                          preload="none"
                           onError={(error) => {
                             console.error('Video yükleme hatası:', story.url, error);
                           }}
@@ -102,13 +102,13 @@ export default function DayContent({ day, isAdmin = false, onRemoveVideo }: DayC
                         className="relative bg-gray-900 rounded-lg overflow-hidden"
                         style={{ aspectRatio: '4/5' }}
                       >
-                        {/* Kimlik doğrulamalı video oynatıcı - SharePoint URL'leri için */}
+                        {/* Kimlik doğrulamalı video oynatıcı - SharePoint URL'leri için (Lazy loading) */}
                         {post?.url ? (
                           <AuthenticatedVideoPlayer
                             url={post.url}
                             controls
                             className="w-full h-full object-cover"
-                            preload="metadata"
+                            preload="none"
                             onError={(error) => {
                               console.error('Video yükleme hatası:', post.url, error);
                             }}
