@@ -21,9 +21,12 @@ export default function VideoDropzone({ type, onVideoUploaded, onCancel }: Video
     const file = acceptedFiles[0];
     if (!file) return;
 
-    // Video dosyası kontrolü
-    if (!file.type.startsWith('video/')) {
-      alert('Lütfen geçerli bir video dosyası seçin.');
+    // Video veya görsel dosyası kontrolü
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    
+    if (!isVideo && !isImage) {
+      alert('Lütfen geçerli bir video veya görsel dosyası seçin.');
       return;
     }
 
@@ -87,7 +90,8 @@ export default function VideoDropzone({ type, onVideoUploaded, onCancel }: Video
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'video/*': ['.mp4', '.mov', '.avi', '.webm', '.mkv']
+      'video/*': ['.mp4', '.mov', '.avi', '.webm', '.mkv'],
+      'image/*': ['.jpg', '.jpeg', '.png', '.webp', '.gif']
     },
     maxFiles: 1,
     disabled: uploading
@@ -127,11 +131,11 @@ export default function VideoDropzone({ type, onVideoUploaded, onCancel }: Video
           <p className="text-sm font-medium text-gray-700 mb-2">
             {isDragActive 
               ? 'Dosyayı buraya bırakın' 
-              : `${type === 'story' ? 'Hikaye' : 'Post'} video dosyasını sürükleyin veya tıklayın`
+              : `${type === 'story' ? 'Hikaye' : 'Post'} video veya görsel dosyasını sürükleyin veya tıklayın`
             }
           </p>
           <p className="text-xs text-gray-500">
-            MP4, MOV, AVI, WEBM, MKV formatları desteklenir
+            Video: MP4, MOV, AVI, WEBM, MKV | Görsel: JPEG, PNG, WEBP, GIF
           </p>
         </div>
       )}
@@ -158,14 +162,26 @@ export default function VideoDropzone({ type, onVideoUploaded, onCancel }: Video
         <div className="border-2 border-gray-300 rounded-lg p-4 bg-white space-y-4">
           <div className="flex items-start gap-4">
             <div className="relative flex-shrink-0" style={{ width: '120px', aspectRatio: type === 'story' ? '9/16' : '4/5' }}>
-              <video
-                src={previewUrl}
-                className="w-full h-full object-cover rounded-lg"
-                controls={false}
-                muted
-              />
+              {selectedFile?.type.startsWith('video/') ? (
+                <video
+                  src={previewUrl}
+                  className="w-full h-full object-cover rounded-lg"
+                  controls={false}
+                  muted
+                />
+              ) : (
+                <img
+                  src={previewUrl}
+                  alt={selectedFile?.name || 'Görsel'}
+                  className="w-full h-full object-cover rounded-lg"
+                />
+              )}
               <div className="absolute inset-0 bg-black bg-opacity-30 rounded-lg flex items-center justify-center">
-                <Video className="w-8 h-8 text-white" />
+                {selectedFile?.type.startsWith('video/') ? (
+                  <Video className="w-8 h-8 text-white" />
+                ) : (
+                  <Upload className="w-8 h-8 text-white" />
+                )}
               </div>
             </div>
             <div className="flex-1">
@@ -176,7 +192,7 @@ export default function VideoDropzone({ type, onVideoUploaded, onCancel }: Video
                 {((selectedFile?.size || 0) / (1024 * 1024)).toFixed(2)} MB
               </p>
               <p className="text-xs text-green-600 font-medium">
-                ✓ Video yüklendi
+                ✓ {selectedFile?.type.startsWith('video/') ? 'Video' : 'Görsel'} yüklendi
               </p>
             </div>
             <button

@@ -1721,9 +1721,12 @@ export const uploadVideo = async (file: File | null | undefined): Promise<string
       throw new Error('Dosya boş');
     }
 
-    // Defensive Coding: Dosya tipi kontrolü
-    if (!file.type.startsWith('video/')) {
-      console.warn('uploadVideo: Dosya tipi video değil:', file.type);
+    // Defensive Coding: Dosya tipi kontrolü (video veya görsel)
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    
+    if (!isVideo && !isImage) {
+      console.warn('uploadVideo: Dosya tipi video veya görsel değil:', file.type);
       // Yine de devam et, bazı tarayıcılar type'ı yanlış gösterebilir
     }
 
