@@ -170,7 +170,7 @@ export default function ViewMode() {
       ) : selectedWeek || weeks.length > 0 ? (
         <div className="flex-1 flex flex-col">
           <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 sm:py-4 flex flex-col gap-3">
-            {/* Üst Satır: Hamburger Menü, Tarih ve Yönetici Butonu */}
+            {/* Üst Satır: Hamburger Menü ve Yönetici Butonu */}
             <div className="flex justify-between items-center">
               {/* Mobil hamburger menü butonu */}
               <button
@@ -184,47 +184,15 @@ export default function ViewMode() {
               {/* Desktop'ta boş alan */}
               <div className="hidden lg:block"></div>
 
-              {/* Mobil: Tarih seçme butonu (takvim ikonu) ve Yönetici butonu */}
-              <div className="flex items-center gap-2">
-                {/* Mobilde takvim ikonu - tarih seçme */}
-                <div className="lg:hidden relative">
-                  <input
-                    ref={mobileDateInputRef}
-                    type="date"
-                    id="mobile-date-input"
-                    value={selectedDate}
-                    onChange={(e) => {
-                      const newDate = e.target.value;
-                      console.log('📅 Tarih seçildi:', newDate);
-                      setSelectedDate(newDate);
-                    }}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                    style={{ fontSize: '16px' }} // iOS'ta zoom'u önlemek için
-                  />
-                  <div
-                    className={`p-2 hover:bg-gray-100 rounded-lg transition-colors relative pointer-events-none ${
-                      selectedDate ? 'bg-blue-50' : ''
-                    }`}
-                    aria-label="Tarih seç"
-                    title={selectedDate ? `Seçili: ${new Date(selectedDate + 'T00:00:00Z').toLocaleDateString('tr-TR')}` : 'Tarih seç'}
-                  >
-                    <Calendar className={`w-5 h-5 ${selectedDate ? 'text-blue-600' : 'text-gray-600'}`} />
-                    {selectedDate && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-600 rounded-full"></span>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Yönetici butonu - küçük kilit ikonu */}
-                <button
-                  onClick={() => navigate('/admin')}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                  aria-label="Yönetici moduna geç"
-                  title="Yönetici Modu"
-                >
-                  <Lock className="w-5 h-5 text-gray-600" />
-                </button>
-              </div>
+              {/* Yönetici butonu - küçük kilit ikonu */}
+              <button
+                onClick={() => navigate('/admin')}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                aria-label="Yönetici moduna geç"
+                title="Yönetici Modu"
+              >
+                <Lock className="w-5 h-5 text-gray-600" />
+              </button>
             </div>
 
             {/* Alt Satır: Tarih Filtresi (Desktop) ve Navigasyon */}
@@ -280,8 +248,8 @@ export default function ViewMode() {
                 </div>
               )}
 
-              {/* Hafta Navigasyonu */}
-              <div className="flex gap-2">
+              {/* Hafta Navigasyonu ve Mobil Tarih Seçme */}
+              <div className="flex gap-2 items-center">
                 <button
                   onClick={handlePreviousWeek}
                   disabled={currentIndex === 0}
@@ -290,6 +258,36 @@ export default function ViewMode() {
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
+                
+                {/* Mobilde takvim ikonu - tarih seçme (navigasyon butonlarının yanında) */}
+                <div className="lg:hidden relative">
+                  <input
+                    ref={mobileDateInputRef}
+                    type="date"
+                    id="mobile-date-input"
+                    value={selectedDate}
+                    onChange={(e) => {
+                      const newDate = e.target.value;
+                      console.log('📅 Tarih seçildi:', newDate);
+                      setSelectedDate(newDate);
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    style={{ fontSize: '16px' }} // iOS'ta zoom'u önlemek için
+                  />
+                  <div
+                    className={`p-2 hover:bg-gray-100 rounded-lg transition-colors relative pointer-events-none ${
+                      selectedDate ? 'bg-blue-50' : ''
+                    }`}
+                    aria-label="Tarih seç"
+                    title={selectedDate ? `Seçili: ${new Date(selectedDate + 'T00:00:00Z').toLocaleDateString('tr-TR')}` : 'Tarih seç'}
+                  >
+                    <Calendar className={`w-5 h-5 ${selectedDate ? 'text-blue-600' : 'text-gray-600'}`} />
+                    {selectedDate && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-600 rounded-full"></span>
+                    )}
+                  </div>
+                </div>
+                
                 <button
                   onClick={handleNextWeek}
                   disabled={currentIndex === weeks.length - 1}
