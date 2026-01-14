@@ -478,78 +478,59 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
     }
   }
   
-  // KRİTİK DÜZELTİLME: Title'dan tarihleri parse et (EN ÖNCELİKLİ)
-  const parseDatesFromTitle = (titleStr: string): { start: string | null, end: string | null } => {
+  // KRİTİK DÜZELTİLME: HAFTA NUMARASINDAN TARİH HESAPLA (En güvenilir yöntem)
+  // BAZ TARİH: 1. Hafta = 12 Ocak 2026 Pazartesi
+  const BASE_DATE = new Date(Date.UTC(2026, 0, 12)); // 12 Ocak 2026
+  
+  const calculateDatesFromWeekNumber = (titleStr: string): { start: string | null, end: string | null } => {
     try {
-      // Format: "2. Hafta - 19 Ocak - 25 Ocak"
-      const datePattern = /(\d+)\s+(Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)/gi;
-      const matches = titleStr.match(datePattern);
-      
-      console.log('🔍 Title parse deneniyor:', { title: titleStr, matches });
-      
-      if (matches && matches.length >= 2) {
-        const monthMap: { [key: string]: number } = {
-          'ocak': 0, 'şubat': 1, 'mart': 2, 'nisan': 3,
-          'mayıs': 4, 'haziran': 5, 'temmuz': 6, 'ağustos': 7,
-          'eylül': 8, 'ekim': 9, 'kasım': 10, 'aralık': 11
+      // Title'dan hafta numarasını çıkar: "3. Hafta - ..." → 3
+      const weekNumMatch = titleStr.match(/^(\d+)\./);
+      if (weekNumMatch) {
+        const weekNumber = parseInt(weekNumMatch[1], 10);
+        
+        // Hafta numarasından tarih hesapla
+        // 1. Hafta = 12 Ocak, 2. Hafta = 19 Ocak, 3. Hafta = 26 Ocak, ...
+        const weekStartDate = new Date(BASE_DATE);
+        weekStartDate.setUTCDate(weekStartDate.getUTCDate() + ((weekNumber - 1) * 7));
+        
+        const weekEndDate = new Date(weekStartDate);
+        weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 6);
+        
+        const result = {
+          start: getDateString(weekStartDate),
+          end: getDateString(weekEndDate)
         };
         
-        const currentYear = new Date().getUTCFullYear();
-        
-        // İlk tarih (başlangıç)
-        const startMatch = matches[0].match(/(\d+)\s+(\w+)/i);
-        if (startMatch) {
-          const day = parseInt(startMatch[1]);
-          const month = monthMap[startMatch[2].toLowerCase()];
-          if (month !== undefined) {
-            const startDateObj = new Date(Date.UTC(currentYear, month, day));
-            
-            // İkinci tarih (bitiş)
-            const endMatch = matches[1].match(/(\d+)\s+(\w+)/i);
-            if (endMatch) {
-              const endDay = parseInt(endMatch[1]);
-              const endMonth = monthMap[endMatch[2].toLowerCase()];
-              if (endMonth !== undefined) {
-                const endDateObj = new Date(Date.UTC(currentYear, endMonth, endDay));
-                
-                const result = {
-                  start: getDateString(startDateObj),
-                  end: getDateString(endDateObj)
-                };
-                console.log('✅ Title\'dan tarihler başarıyla parse edildi:', result);
-                return result;
-              }
-            }
-          }
-        }
+        console.log(`✅ Hafta ${weekNumber} tarihleri hesaplandı:`, result);
+        return result;
       }
     } catch (e) {
-      console.warn('❌ Title\'dan tarih parse edilemedi:', e);
+      console.warn('❌ Hafta numarasından tarih hesaplanamadı:', e);
     }
     return { start: null, end: null };
   };
   
-  // ÖNCELİKLE Title'dan tarihleri parse et
-  const parsedDates = parseDatesFromTitle(title);
+  // ÖNCELİKLE hafta numarasından tarih hesapla
+  const calculatedDates = calculateDatesFromWeekNumber(title);
   
-  // Eğer Title'dan parse başarılıysa, bunları kullan (SharePoint alanlarını override et)
-  if (parsedDates.start && parsedDates.end) {
-    startDate = parsedDates.start;
-    endDate = parsedDates.end;
-    console.log('✅ Tarihler Title\'dan alındı:', { startDate, endDate });
+  // Eğer hesaplama başarılıysa, bunları kullan (her zaman tutarlı)
+  if (calculatedDates.start && calculatedDates.end) {
+    startDate = calculatedDates.start;
+    endDate = calculatedDates.end;
   } else {
-    // Title'dan parse edilemezse, varsayılanları kullan
+    // Hesaplama başarısızsa, varsayılanları kullan
     const today = new Date();
     const defaultStartDate = getDateString(getWeekStartDate(today));
     const defaultEndDate = getDateString(getWeekEndDate(getWeekStartDate(today)));
     
     if (!startDate || startDate === '') {
-      console.warn('⚠️ StartDate bulunamadı, varsayılan kullanılıyor:', defaultStartDate);
+      console.warn('⚠️ StartDate hesaplanamadı, varsayılan kullanılıyor:', defaultStartDate);
       startDate = defaultStartDate;
     }
     
     if (!endDate || endDate === '') {
-      console.warn('⚠️ EndDate bulunamadı, varsayılan kullanılıyor:', defaultEndDate);
+      console.warn('⚠️ EndDate hesaplanamadı, varsayılan kullanılıyor:', defaultEndDate);
       endDate = defaultEndDate;
     }
   }
@@ -1479,12 +1460,13 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
     // Mevcut haftaları al
     const existingWeeks = await getWeeks();
     
-    console.log('📅 createWeek: Mevcut haftalar analiz ediliyor...', 
-      existingWeeks.map(w => ({ title: w.title, startDate: w.startDate, endDate: w.endDate }))
-    );
+    console.log('📅 createWeek: Mevcut haftalar analiz ediliyor...');
     
     let weekStart: Date;
     let weekNumber = 1;
+    
+    // BAZ TARİH: 1. Hafta = 12 Ocak 2026 Pazartesi
+    const BASE_DATE = new Date(Date.UTC(2026, 0, 12)); // 12 Ocak 2026
     
     if (startDate) {
       const inputDate = parseDate(startDate);
@@ -1492,51 +1474,35 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
         throw new Error(`Geçersiz başlangıç tarihi: ${startDate}`);
       }
       weekStart = getWeekStartDate(inputDate);
+      
+      // Verilen tarihten hafta numarasını hesapla
+      const diffDays = Math.floor((weekStart.getTime() - BASE_DATE.getTime()) / (1000 * 60 * 60 * 24));
+      weekNumber = Math.floor(diffDays / 7) + 1;
     } else {
-      // EN YÜKSEK HAFTA NUMARASINI BUL ve ondan sonraki haftayı hesapla
+      // EN YÜKSEK HAFTA NUMARASINI BUL
       if (existingWeeks.length > 0) {
-        // Hafta numaralarını ve tarihlerini Title'dan parse et
-        const weekInfos = existingWeeks.map(w => {
-          const numMatch = w.title.match(/^(\d+)\./);
-          const weekNum = numMatch ? parseInt(numMatch[1], 10) : 0;
-          return { week: w, number: weekNum, endDate: w.endDate };
-        }).filter(info => info.number > 0);
+        const weekNumbers = existingWeeks.map(w => {
+          const match = w.title.match(/^(\d+)\./);
+          return match ? parseInt(match[1], 10) : 0;
+        }).filter(n => n > 0);
         
-        console.log('📋 Hafta bilgileri:', weekInfos.map(i => ({ num: i.number, endDate: i.endDate })));
+        const maxWeekNumber = Math.max(...weekNumbers, 0);
+        weekNumber = maxWeekNumber + 1;
         
-        // En yüksek numaralı haftayı bul
-        const maxWeekInfo = weekInfos.reduce((max, curr) => 
-          curr.number > max.number ? curr : max
-        , { week: existingWeeks[0], number: 0, endDate: '' });
-        
-        weekNumber = maxWeekInfo.number + 1;
-        
-        // Son haftanın bitiş tarihinden +1 gün
-        const lastEndDate = parseDate(maxWeekInfo.endDate);
-        if (lastEndDate && !isNaN(lastEndDate.getTime())) {
-          weekStart = new Date(lastEndDate);
-          weekStart.setUTCDate(weekStart.getUTCDate() + 1);
-          console.log(`✅ Son hafta (${maxWeekInfo.number}.) bitiş: ${maxWeekInfo.endDate}, Yeni hafta başlangıç: ${getDateString(weekStart)}`);
-        } else {
-          // Fallback: Hafta numarasından hesapla (1. hafta = 12 Ocak 2026 varsayım)
-          const baseDate = new Date(Date.UTC(2026, 0, 12)); // 12 Ocak 2026 Pazartesi
-          weekStart = new Date(baseDate);
-          weekStart.setUTCDate(weekStart.getUTCDate() + ((weekNumber - 1) * 7));
-          console.warn(`⚠️ Son hafta tarihi geçersiz, hafta numarasından hesaplandı: ${getDateString(weekStart)}`);
-        }
-      } else {
-        // İlk hafta - bugünden başla
-        const today = new Date();
-        weekStart = getWeekStartDate(today);
+        console.log(`📋 Mevcut en yüksek hafta numarası: ${maxWeekNumber}, Yeni hafta: ${weekNumber}`);
       }
+      
+      // HAFTA NUMARASINDAN TARİH HESAPLA (her zaman tutarlı)
+      // 1. Hafta = 12 Ocak, 2. Hafta = 19 Ocak, 3. Hafta = 26 Ocak, ...
+      weekStart = new Date(BASE_DATE);
+      weekStart.setUTCDate(weekStart.getUTCDate() + ((weekNumber - 1) * 7));
+      
+      console.log(`✅ Hafta ${weekNumber} tarihi hesaplandı: ${getDateString(weekStart)} (Baz: 12 Ocak 2026 + ${(weekNumber - 1) * 7} gün)`);
     }
 
     if (!weekStart || isNaN(weekStart.getTime())) {
       throw new Error('Geçersiz hafta başlangıç tarihi oluşturuldu');
     }
-
-    // Pazartesi gününe ayarla
-    weekStart = getWeekStartDate(weekStart);
     
     const weekEnd = getWeekEndDate(weekStart);
     if (!weekEnd || isNaN(weekEnd.getTime())) {
