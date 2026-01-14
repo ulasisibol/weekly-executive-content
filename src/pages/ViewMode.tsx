@@ -138,41 +138,28 @@ export default function ViewMode() {
       {selectedWeek || weeks.length > 0 ? (
         <div className="flex-1 flex flex-col">
           <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 sm:py-4 flex flex-col gap-3">
-            {/* Üst Satır: Mod Başlığı ve Yönetici Butonu */}
+            {/* Üst Satır: Hamburger Menü ve Yönetici Butonu */}
             <div className="flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                {/* Mobil hamburger menü butonu */}
-                <button
-                  onClick={() => setIsSidebarOpen(true)}
-                  className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors mr-2"
-                  aria-label="Menüyü aç"
-                >
-                  <Menu className="w-5 h-5 text-gray-600" />
-                </button>
-                <div className="flex items-center gap-2">
-                  <Eye className="w-5 h-5 text-gray-600" />
-                  <span className="text-sm font-medium text-gray-600">Görüntüleme Modu</span>
-                </div>
-                {allWeeks.length > 0 && (
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full font-medium">
-                      {allWeeks.length} Hafta
-                    </span>
-                    {selectedDate && weeks.length !== allWeeks.length && (
-                      <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full font-medium">
-                        {weeks.length} Filtrelendi
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
+              {/* Mobil hamburger menü butonu */}
+              <button
+                onClick={() => setIsSidebarOpen(true)}
+                className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                aria-label="Menüyü aç"
+              >
+                <Menu className="w-5 h-5 text-gray-600" />
+              </button>
+              
+              {/* Desktop'ta boş alan */}
+              <div className="hidden lg:block"></div>
 
+              {/* Yönetici butonu - küçük kilit ikonu */}
               <button
                 onClick={() => navigate('/admin')}
-                className="px-3 sm:px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                aria-label="Yönetici moduna geç"
+                title="Yönetici Modu"
               >
-                <Lock className="w-4 h-4 inline mr-2" />
-                Yönetici
+                <Lock className="w-5 h-5 text-gray-600" />
               </button>
             </div>
 
