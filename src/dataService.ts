@@ -478,17 +478,14 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
     }
   }
   
-  // Eğer tarih alanları bulunamadıysa, Title'dan parse et veya varsayılan kullan
-  const today = new Date();
-  const defaultStartDate = getDateString(getWeekStartDate(today));
-  const defaultEndDate = getDateString(getWeekEndDate(getWeekStartDate(today)));
-  
-  // KRİTİK DÜZELTİLME: Title'dan tarihleri parse et
+  // KRİTİK DÜZELTİLME: Title'dan tarihleri parse et (EN ÖNCELİKLİ)
   const parseDatesFromTitle = (titleStr: string): { start: string | null, end: string | null } => {
     try {
       // Format: "2. Hafta - 19 Ocak - 25 Ocak"
       const datePattern = /(\d+)\s+(Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık)/gi;
       const matches = titleStr.match(datePattern);
+      
+      console.log('🔍 Title parse deneniyor:', { title: titleStr, matches });
       
       if (matches && matches.length >= 2) {
         const monthMap: { [key: string]: number } = {
@@ -504,111 +501,66 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
         if (startMatch) {
           const day = parseInt(startMatch[1]);
           const month = monthMap[startMatch[2].toLowerCase()];
-          const startDate = new Date(Date.UTC(currentYear, month, day));
-          
-          // İkinci tarih (bitiş)
-          const endMatch = matches[1].match(/(\d+)\s+(\w+)/i);
-          if (endMatch) {
-            const endDay = parseInt(endMatch[1]);
-            const endMonth = monthMap[endMatch[2].toLowerCase()];
-            const endDate = new Date(Date.UTC(currentYear, endMonth, endDay));
+          if (month !== undefined) {
+            const startDateObj = new Date(Date.UTC(currentYear, month, day));
             
-            return {
-              start: getDateString(startDate),
-              end: getDateString(endDate)
-            };
+            // İkinci tarih (bitiş)
+            const endMatch = matches[1].match(/(\d+)\s+(\w+)/i);
+            if (endMatch) {
+              const endDay = parseInt(endMatch[1]);
+              const endMonth = monthMap[endMatch[2].toLowerCase()];
+              if (endMonth !== undefined) {
+                const endDateObj = new Date(Date.UTC(currentYear, endMonth, endDay));
+                
+                const result = {
+                  start: getDateString(startDateObj),
+                  end: getDateString(endDateObj)
+                };
+                console.log('✅ Title\'dan tarihler başarıyla parse edildi:', result);
+                return result;
+              }
+            }
           }
         }
       }
     } catch (e) {
-      console.warn('Title\'dan tarih parse edilemedi:', e);
+      console.warn('❌ Title\'dan tarih parse edilemedi:', e);
     }
     return { start: null, end: null };
   };
   
-  if (!startDate || startDate === '') {
-    // Önce Title'dan parse etmeyi dene
-    const parsedDates = parseDatesFromTitle(title);
-    if (parsedDates.start) {
-      startDate = parsedDates.start;
-      console.log('✅ StartDate Title\'dan parse edildi:', startDate);
-    } else {
-      const dateFields = Object.keys(fields).filter(k => {
-        const lower = k.toLowerCase();
-        return lower.includes('date') || 
-               lower.includes('start') || 
-               lower.includes('tarih') ||
-               lower.includes('begin') ||
-               lower.includes('from');
-      });
-      console.warn('⚠️ StartDate alanı bulunamadı ve Title\'dan parse edilemedi, varsayılan tarih kullanılıyor:', {
-        itemId: item.id,
-        title: title,
-        availableDateFields: dateFields,
-        defaultStartDate,
-        allFields: Object.keys(fields)
-      });
-      startDate = defaultStartDate; // Varsayılan: Bugünden itibaren hafta başlangıcı
-    }
+  // ÖNCELİKLE Title'dan tarihleri parse et
+  const parsedDates = parseDatesFromTitle(title);
+  
+  // Eğer Title'dan parse başarılıysa, bunları kullan (SharePoint alanlarını override et)
+  if (parsedDates.start && parsedDates.end) {
+    startDate = parsedDates.start;
+    endDate = parsedDates.end;
+    console.log('✅ Tarihler Title\'dan alındı:', { startDate, endDate });
   } else {
-    // Tarih string'ini normalize et
-    if (typeof startDate === 'string') {
-      const parsed = parseDate(startDate);
-      if (parsed) {
-        startDate = getDateString(parsed);
-      } else {
-        console.warn('⚠️ StartDate parse edilemedi, varsayılan kullanılıyor:', startDate);
-        startDate = defaultStartDate;
-      }
-    } else if (startDate instanceof Date) {
-      startDate = getDateString(startDate);
-    } else {
-      console.warn('⚠️ StartDate beklenmeyen tip, varsayılan kullanılıyor:', typeof startDate);
+    // Title'dan parse edilemezse, varsayılanları kullan
+    const today = new Date();
+    const defaultStartDate = getDateString(getWeekStartDate(today));
+    const defaultEndDate = getDateString(getWeekEndDate(getWeekStartDate(today)));
+    
+    if (!startDate || startDate === '') {
+      console.warn('⚠️ StartDate bulunamadı, varsayılan kullanılıyor:', defaultStartDate);
       startDate = defaultStartDate;
     }
-  }
-  
-  if (!endDate || endDate === '') {
-    // Önce Title'dan parse etmeyi dene
-    const parsedDates = parseDatesFromTitle(title);
-    if (parsedDates.end) {
-      endDate = parsedDates.end;
-      console.log('✅ EndDate Title\'dan parse edildi:', endDate);
-    } else {
-      const dateFields = Object.keys(fields).filter(k => {
-        const lower = k.toLowerCase();
-        return lower.includes('date') || 
-               lower.includes('end') || 
-               lower.includes('tarih') ||
-               lower.includes('finish') ||
-               lower.includes('to');
-      });
-      console.warn('⚠️ EndDate alanı bulunamadı ve Title\'dan parse edilemedi, varsayılan tarih kullanılıyor:', {
-        itemId: item.id,
-        title: title,
-        availableDateFields: dateFields,
-        defaultEndDate,
-        allFields: Object.keys(fields)
-      });
-      endDate = defaultEndDate; // Varsayılan: Bugünden itibaren hafta bitişi
-    }
-  } else {
-    // Tarih string'ini normalize et
-    if (typeof endDate === 'string') {
-      const parsed = parseDate(endDate);
-      if (parsed) {
-        endDate = getDateString(parsed);
-      } else {
-        console.warn('⚠️ EndDate parse edilemedi, varsayılan kullanılıyor:', endDate);
-        endDate = defaultEndDate;
-      }
-    } else if (endDate instanceof Date) {
-      endDate = getDateString(endDate);
-    } else {
-      console.warn('⚠️ EndDate beklenmeyen tip, varsayılan kullanılıyor:', typeof endDate);
+    
+    if (!endDate || endDate === '') {
+      console.warn('⚠️ EndDate bulunamadı, varsayılan kullanılıyor:', defaultEndDate);
       endDate = defaultEndDate;
     }
   }
+  
+  // Final log
+  console.log('📋 mapListItemToWeek sonuç:', {
+    id: item.id,
+    title: title,
+    startDate: startDate,
+    endDate: endDate
+  });
   
   const statusValue = findFieldValue('Status', ['Durum', 'status']);
   const status = (statusValue === 'published' || statusValue === 'draft') 
