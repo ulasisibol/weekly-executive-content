@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Providers } from '@microsoft/mgt-element';
 import { Login } from '@microsoft/mgt-react';
 import ViewMode from './pages/ViewMode';
@@ -73,6 +73,8 @@ function App() {
       <Routes>
         <Route path="/" element={<ViewMode />} />
         <Route path="/admin" element={<AdminMode />} />
+        {/* 404 durumunda ana sayfaya yönlendir */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   );
