@@ -4,7 +4,9 @@ import { Week, Day, Video } from './types';
 // SharePoint Site ve Liste Bilgileri
 const SHAREPOINT_SITE_URL = 'https://pakyurektarim1.sharepoint.com/sites/mezzeMarinMarkaletiimi';
 const LIST_NAME = 'HaftalikIcerik';
-const DOCUMENT_LIBRARY_NAME = 'Documents'; // Shared Documents
+// NOT: DOCUMENT_LIBRARY_NAME artık kullanılmıyor - getDriveId() fonksiyonu
+// dil bağımsız olarak varsayılan belge kitaplığını bulmak için `/sites/{siteId}/drive` endpoint'ini kullanıyor
+// const DOCUMENT_LIBRARY_NAME = 'Documents'; // Shared Documents (KULLANILMIYOR - Türkçe sistemde "Belgeler" olabilir)
 
 // Cache için
 let cachedSiteId: string | null = null;
@@ -132,7 +134,9 @@ const getListId = async (): Promise<string> => {
   }
 };
 
-// Drive ID'yi bul (Documents kütüphanesi için)
+// Drive ID'yi bul - Dilden bağımsız varsayılan belge kitaplığı (Documents/Belgeler)
+// NOT: `/sites/{siteId}/drive` endpoint'i dil bağımsız olarak varsayılan belge kitaplığını döndürür
+// Bu sayede Türkçe SharePoint'te "Belgeler", İngilizce'de "Documents" otomatik bulunur
 const getDriveId = async (): Promise<string> => {
   if (cachedDriveId) {
     return cachedDriveId;
@@ -140,20 +144,24 @@ const getDriveId = async (): Promise<string> => {
 
   try {
     const siteId = await getSiteId();
-    const drives = await graphRequest(`/sites/${siteId}/drives?$filter=name eq '${DOCUMENT_LIBRARY_NAME}'`);
+    console.log('🔍 Varsayılan belge kitaplığı aranıyor (dil bağımsız)...');
     
-    if (!drives.value || drives.value.length === 0) {
-      throw new Error(`Drive bulunamadı: ${DOCUMENT_LIBRARY_NAME}`);
+    // ESKİ VE HATALI (İsme bağımlı - Türkçe sistemde çalışmıyor):
+    // const drives = await graphRequest(`/sites/${siteId}/drives?$filter=name eq 'Documents'`);
+    
+    // YENİ VE DOĞRU (Dilden bağımsız - Documents/Belgeler otomatik bulunur):
+    const drive = await graphRequest(`/sites/${siteId}/drive`);
+    
+    if (!drive?.id || typeof drive.id !== 'string') {
+      throw new Error('Varsayılan belge kitaplığı bulunamadı');
     }
 
-    const driveId = drives.value[0]?.id;
-    if (!driveId || typeof driveId !== 'string') {
-      throw new Error('Drive ID alınamadı');
-    }
-    cachedDriveId = driveId;
-    return driveId;
+    cachedDriveId = drive.id;
+    console.log('✅ Drive ID bulundu (varsayılan belge kitaplığı):', cachedDriveId);
+    console.log('📚 Kütüphane adı:', drive.name || 'Bilinmiyor');
+    return drive.id;
   } catch (error) {
-    console.error('Drive ID bulunamadı:', error);
+    console.error('❌ Drive ID bulunamadı:', error);
     throw error;
   }
 };
