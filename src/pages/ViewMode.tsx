@@ -168,14 +168,7 @@ export default function ViewMode() {
               {/* Mobil: Tarih seçme butonu (takvim ikonu) ve Yönetici butonu */}
               <div className="flex items-center gap-2">
                 {/* Mobilde takvim ikonu - tarih seçme */}
-                <label
-                  htmlFor="mobile-date-input"
-                  className={`lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors relative cursor-pointer ${
-                    selectedDate ? 'bg-blue-50' : ''
-                  }`}
-                  aria-label="Tarih seç"
-                  title={selectedDate ? `Seçili: ${new Date(selectedDate + 'T00:00:00Z').toLocaleDateString('tr-TR')}` : 'Tarih seç'}
-                >
+                <div className="lg:hidden relative">
                   <input
                     ref={mobileDateInputRef}
                     type="date"
@@ -186,13 +179,22 @@ export default function ViewMode() {
                       console.log('📅 Tarih seçildi:', newDate);
                       setSelectedDate(newDate);
                     }}
-                    className="hidden"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    style={{ fontSize: '16px' }} // iOS'ta zoom'u önlemek için
                   />
-                  <Calendar className={`w-5 h-5 ${selectedDate ? 'text-blue-600' : 'text-gray-600'}`} />
-                  {selectedDate && (
-                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-600 rounded-full"></span>
-                  )}
-                </label>
+                  <div
+                    className={`p-2 hover:bg-gray-100 rounded-lg transition-colors relative pointer-events-none ${
+                      selectedDate ? 'bg-blue-50' : ''
+                    }`}
+                    aria-label="Tarih seç"
+                    title={selectedDate ? `Seçili: ${new Date(selectedDate + 'T00:00:00Z').toLocaleDateString('tr-TR')}` : 'Tarih seç'}
+                  >
+                    <Calendar className={`w-5 h-5 ${selectedDate ? 'text-blue-600' : 'text-gray-600'}`} />
+                    {selectedDate && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-blue-600 rounded-full"></span>
+                    )}
+                  </div>
+                </div>
                 
                 {/* Yönetici butonu - küçük kilit ikonu */}
                 <button
