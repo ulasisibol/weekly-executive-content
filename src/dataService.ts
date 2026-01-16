@@ -479,8 +479,8 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
   }
   
   // KRİTİK DÜZELTİLME: HAFTA NUMARASINDAN TARİH HESAPLA (En güvenilir yöntem)
-  // BAZ TARİH: 1. Hafta = 12 Ocak 2026 Pazartesi
-  const BASE_DATE = new Date(Date.UTC(2026, 0, 12)); // 12 Ocak 2026
+  // BAZ TARİH: 1. Hafta = 5 Ocak 2026 Pazartesi (12 Ocak = 2. Hafta olacak şekilde)
+  const BASE_DATE = new Date(Date.UTC(2026, 0, 5)); // 5 Ocak 2026
   
   const calculateDatesFromWeekNumber = (titleStr: string): { start: string | null, end: string | null } => {
     try {
@@ -490,7 +490,7 @@ const mapListItemToWeek = (item: any, schema?: any): Week => {
         const weekNumber = parseInt(weekNumMatch[1], 10);
         
         // Hafta numarasından tarih hesapla
-        // 1. Hafta = 12 Ocak, 2. Hafta = 19 Ocak, 3. Hafta = 26 Ocak, ...
+        // 1. Hafta = 5 Ocak, 2. Hafta = 12 Ocak, 3. Hafta = 19 Ocak, 4. Hafta = 26 Ocak, ...
         const weekStartDate = new Date(BASE_DATE);
         weekStartDate.setUTCDate(weekStartDate.getUTCDate() + ((weekNumber - 1) * 7));
         
@@ -1465,8 +1465,8 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
     let weekStart: Date;
     let weekNumber = 1;
     
-    // BAZ TARİH: 1. Hafta = 12 Ocak 2026 Pazartesi
-    const BASE_DATE = new Date(Date.UTC(2026, 0, 12)); // 12 Ocak 2026
+    // BAZ TARİH: 1. Hafta = 5 Ocak 2026 Pazartesi (12 Ocak = 2. Hafta olacak şekilde)
+    const BASE_DATE = new Date(Date.UTC(2026, 0, 5)); // 5 Ocak 2026
     
     if (startDate) {
       const inputDate = parseDate(startDate);
@@ -1493,7 +1493,7 @@ export const createWeek = async (startDate?: string): Promise<Week> => {
       }
       
       // HAFTA NUMARASINDAN TARİH HESAPLA (her zaman tutarlı)
-      // 1. Hafta = 12 Ocak, 2. Hafta = 19 Ocak, 3. Hafta = 26 Ocak, ...
+      // 1. Hafta = 5 Ocak, 2. Hafta = 12 Ocak, 3. Hafta = 19 Ocak, 4. Hafta = 26 Ocak, ...
       weekStart = new Date(BASE_DATE);
       weekStart.setUTCDate(weekStart.getUTCDate() + ((weekNumber - 1) * 7));
       
@@ -1893,6 +1893,51 @@ export const uploadVideo = async (file: File | null | undefined): Promise<string
 // SharePoint'ten dosya içeriğini Blob olarak getir (kimlik doğrulamalı)
 // Bu fonksiyon, SharePoint URL'lerini doğrudan video src'de kullanmak yerine
 // kimlik doğrulamalı blob URL oluşturmak için kullanılır
+// MIGRATION: Mevcut haftaların numaralarını +1 yap (12 Ocak = 2. Hafta olacak şekilde)
+// Bu fonksiyon sadece bir kez çalıştırılmalı
+export const migrateWeekNumbers = async (): Promise<void> => {
+  try {
+    console.log('🔄 Hafta numarası migration başlatılıyor...');
+    const weeks = await getWeeks();
+    
+    if (weeks.length === 0) {
+      console.log('ℹ️ Migrate edilecek hafta yok');
+      return;
+    }
+    
+    console.log(`📋 ${weeks.length} hafta bulundu, numaralar +1 yapılacak`);
+    
+    for (const week of weeks) {
+      const match = week.title.match(/^(\d+)\./);
+      if (match) {
+        const oldNumber = parseInt(match[1], 10);
+        const newNumber = oldNumber + 1;
+        
+        // Title'ı güncelle
+        const newTitle = week.title.replace(/^\d+\./, `${newNumber}.`);
+        
+        console.log(`🔄 Hafta güncelleniyor: "${week.title}" → "${newTitle}"`);
+        
+        // SharePoint'te güncelle
+        const updatedWeek = {
+          ...week,
+          title: newTitle
+        };
+        
+        await saveWeek(updatedWeek);
+        console.log(`✅ Hafta güncellendi: ${newTitle}`);
+      } else {
+        console.warn(`⚠️ Hafta numarası bulunamadı, atlandı: ${week.title}`);
+      }
+    }
+    
+    console.log('✅ Migration tamamlandı!');
+  } catch (error) {
+    console.error('❌ Migration hatası:', error);
+    throw error;
+  }
+};
+
 export const getFileContentAsBlob = async (fileName: string): Promise<Blob> => {
   try {
     // Defensive Coding: Dosya adı validasyonu
